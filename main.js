@@ -66,7 +66,8 @@ function main() {
 async function onReady() {
   balanceService = new balanceMod.BalanceService()
   createPetWindow()
-  createMenuWindow()
+  const menuPos = menuPositionNearPet()
+  createMenuWindow(menuPos ? menuPos.x : undefined, menuPos ? menuPos.y : undefined)
   applyNativeTheme()
   setupTray()
   setupShortcuts()
@@ -139,10 +140,12 @@ function applyNativeTheme() {
   } catch (err) { /* ignore */ }
 }
 
-function createMenuWindow() {
+function createMenuWindow(initX, initY) {
   menuWin = new BrowserWindow({
     width: MENU_W,
     height: MENU_H,
+    x: typeof initX === 'number' ? Math.round(initX) : undefined,
+    y: typeof initY === 'number' ? Math.round(initY) : undefined,
     frame: true,
     transparent: false,
     resizable: false,
@@ -165,17 +168,29 @@ function createMenuWindow() {
   menuWin.on('closed', () => { menuWin = null })
 }
 
-function openMenu() {
-  if (!petWin || !menuWin || petWin.isDestroyed() || menuWin.isDestroyed()) return
+// 计算设置窗应出现的位置：鲸鱼上方优先、放不下则下方，始终在屏幕内
+function menuPositionNearPet() {
+  if (!petWin || petWin.isDestroyed()) return null
   const pb = petWin.getBounds()
-  const mb = menuWin.getBounds()
   const wa = screen.getDisplayMatching(pb).workArea
-  let x = pb.x + pb.width - mb.width
-  let y = pb.y - mb.height - 8
+  let x = pb.x + pb.width - MENU_W
+  let y = pb.y - MENU_H - 8
   if (y < wa.y) y = pb.y + pb.height + 8 // 上方放不下 → 放鲸鱼下方
-  x = Math.max(wa.x, Math.min(x, wa.x + wa.width - mb.width))
-  y = Math.max(wa.y, Math.min(y, wa.y + wa.height - mb.height))
-  menuWin.setPosition(Math.round(x), Math.round(y))
+  x = Math.max(wa.x, Math.min(x, wa.x + wa.width - MENU_W))
+  y = Math.max(wa.y, Math.min(y, wa.y + wa.height - MENU_H))
+  return { x: Math.round(x), y: Math.round(y) }
+}
+
+function openMenu() {
+  // 用户直接叉掉窗口后 menuWin 为 null —— 按需重建（否则再也打不开设置）
+  const pos = menuPositionNearPet()
+  if (!menuWin || menuWin.isDestroyed()) {
+    createMenuWindow(pos ? pos.x : undefined, pos ? pos.y : undefined)
+  }
+  if (!menuWin || menuWin.isDestroyed()) return
+  // 已存在（隐藏）的窗口：显示前校正位置；新建窗口在构造时就带上了坐标，
+  // 防止部分 WM 首次 map 时使用默认居中位置
+  if (pos) menuWin.setPosition(pos.x, pos.y)
   menuWin.show()
   menuWin.focus()
 }
@@ -699,6 +714,32 @@ async function runSmoke() {
   openMenu()
   await new Promise((r) => setTimeout(r, 700))
   await capturer(menuWin, 'smoke-menu.png')
+
+  // ④ 设置窗被直接叉掉后：应能按需重建并再次打开，且紧贴鲸鱼而非默认居中
+  try {
+    const petPos = petWin.getPosition()
+    const petW = petWin.getBounds().width
+    const petH = petWin.getBounds().height
+    menuWin.close()
+    await new Promise((r) => setTimeout(r, 500))
+    openMenu()
+    await new Promise((r) => setTimeout(r, 600))
+    const mb = menuWin && !menuWin.isDestroyed() ? menuWin.getBounds() : null
+    const wa2 = await getWorkAreaForPet()
+    results.menuReopen = mb ? {
+      recreated: true,
+      visible: menuWin.isVisible(),
+      rightAligned: Math.abs((mb.x + mb.width) - (petPos[0] + petW)) <= 4,
+      // 上/下方紧贴鲸鱼，或已钳制到屏幕上/下边缘（均非默认居中）
+      nearPetVertically: (Math.abs((mb.y + mb.height) - (petPos[1] - 8)) <= 6) ||
+        (Math.abs(mb.y - (petPos[1] + petH + 8)) <= 6) ||
+        Math.abs(mb.y - wa2.y) <= 2 ||
+        Math.abs((mb.y + mb.height) - (wa2.y + wa2.height)) <= 2,
+      pos: { x: mb.x, y: mb.y },
+    } : { recreated: false }
+  } catch (err) {
+    results.menuReopen = 'FAIL: ' + String((err && err.message) || err)
+  }
 
   const cfg = configMod.getEffective()
   results.configPath = configMod.CONFIG_FILE

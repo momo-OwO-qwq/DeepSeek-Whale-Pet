@@ -145,7 +145,7 @@ petWin.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
 - **文案颜色**：`textColorOk` / `textColorLow`（`#rrggbb` 或空=继承默认 #536ba9），随文案状态切换。菜单提供色板 + 「默认」按钮。
 - **峰谷自定义词**：`peakTextOff` / `peakTextOn`（各限 12 字符）；非空时覆盖内置/峰谷模式文案。
 - **暗色主题**：设置窗 `theme`（system/light/dark）。菜单页用 CSS 变量双主题，`menu.js` 根据配置 + `matchMedia('(prefers-color-scheme: dark)')` 设置 `html[data-theme]` 并监听系统变化；**主进程同步 `nativeTheme.themeSource`**，系统标题栏/原生控件/下拉弹层随之换肤。选择栏修复：`appearance:none` + 实色背景（`--wm-select-bg`）+ 自绘箭头 + `option` 显式前景/背景色（Chromium 原生 select 会被系统白底覆盖 → 暗色下白字白底）。
-- **原生设置窗口**：frame:true（系统标题栏）、非透明、非置顶、可关闭；Tab 标签页（账户/数据/外观/文案/音效/图片台词）在页面内切换，内容分区；不再 `blur` 自动收起。
+- **原生设置窗口**：frame:true（系统标题栏）、非透明、非置顶、可关闭；Tab 标签页（账户/数据/外观/文案/音效/图片台词）在页面内切换，内容分区；不再 `blur` 自动收起。**按需重建**：用户直接叉掉窗口后（closed → null），`openMenu()` 会以鲸鱼旁的坐标重新创建并打开（坐标随构造函数传入，避免部分 WM 首次 map 时默认居中）；托盘/右键/鲸鱼按钮统一走 `openMenu()`。
 
 ### 4.9 自定义音效 + 随机台词/动图池 + 去 Emoji
 
