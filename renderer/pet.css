@@ -61,8 +61,8 @@ html, body {
   transition: transform .22s cubic-bezier(.34, 1.56, .64, 1), opacity .4s ease;
 }
 .wp-root.wp-dragging .wp-body { transition: transform .22s cubic-bezier(.34, 1.56, .64, 1); }
-/* 闲置半透明（鼠标离开 3s 后渐隐到 0.6） */
-.wp-root.wp-idle .wp-body { opacity: .6; }
+/* 闲置半透明（鼠标离开 3s 后渐隐到可调阈值，默认 0.6） */
+.wp-root.wp-idle .wp-body { opacity: var(--wp-idle-opacity, .6); }
 
 .wp-img {
   position: absolute;

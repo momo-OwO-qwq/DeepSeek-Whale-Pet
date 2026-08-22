@@ -18,6 +18,7 @@
     token: $('wm-token'), tokenEye: $('wm-token-eye'),
     usage: $('wm-usage'), refresh: $('wm-refresh'), threshold: $('wm-threshold'), autostart: $('wm-autostart'),
     bubble: $('wm-bubble'), idleFade: $('wm-idlefade'),
+    idleOpacity: $('wm-idle-opacity'), idleOpacityV: $('wm-idle-opacity-v'),
     scale: $('wm-scale'), scaleV: $('wm-scale-v'),
     peak: $('wm-peak'), peakText: $('wm-peaktext'), peakOff: $('wm-peak-off'), peakOn: $('wm-peak-on'),
     textOk: $('wm-text-ok'), textLow: $('wm-text-low'),
@@ -96,6 +97,8 @@
     els.autostart.checked = !!cfg.autostart
     els.bubble.checked = cfg.bubbleOn !== false
     els.idleFade.checked = cfg.idleFade !== false
+    els.idleOpacity.value = String(cfg.idleOpacity != null ? cfg.idleOpacity : 0.6)
+    els.idleOpacityV.textContent = Math.round((cfg.idleOpacity != null ? cfg.idleOpacity : 0.6) * 100) + '%'
     els.scale.value = String(cfg.scale || 1)
     els.scaleV.textContent = (cfg.scale || 1).toFixed(1)
     els.peak.value = cfg.peakMode || 'default'
@@ -197,6 +200,10 @@
   els.vol.addEventListener('input', function () {
     els.volV.textContent = Math.round(Number(els.vol.value) * 100) + '%'
     debounceSave({ volume: Number(els.vol.value) }, 200)
+  })
+  els.idleOpacity.addEventListener('input', function () {
+    els.idleOpacityV.textContent = Math.round(Number(els.idleOpacity.value) * 100) + '%'
+    debounceSave({ idleOpacity: Number(els.idleOpacity.value) }, 200)
   })
 
   // ---------- 数字输入 ----------

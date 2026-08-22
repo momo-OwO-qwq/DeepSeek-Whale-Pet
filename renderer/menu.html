@@ -105,6 +105,11 @@
         <div class="wm-note">鼠标离开 3 秒后渐隐</div>
       </div>
       <label class="wm-row wm-span">
+        <span class="wm-label">闲置不透明度</span>
+        <input id="wm-idle-opacity" class="wm-range" type="range" min="0.2" max="1" step="0.05"><span id="wm-idle-opacity-v" class="wm-val"></span>
+        <span class="wm-unit">闲置时仅剩的透明度</span>
+      </label>
+      <label class="wm-row wm-span">
         <span class="wm-label">峰谷文案风格</span>
         <select id="wm-peak">
           <option value="default">默认（空闲时段 / 高峰时段）</option>
@@ -156,8 +161,8 @@
         <label class="wm-row">
           <span class="wm-label">音效方案</span>
           <select id="wm-sound">
-            <option value="duck">小黄鸭</option>
-            <option value="fx1">音效1</option>
+            <option value="duck">音效1</option>
+            <option value="fx1">音效2</option>
           </select>
         </label>
         <label class="wm-row">

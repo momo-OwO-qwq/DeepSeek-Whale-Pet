@@ -36,6 +36,21 @@
       "assets/**",
       "package.json"
     ],
+    "mac": {
+      "target": [
+        "dmg",
+        "zip"
+      ],
+      "icon": "assets/DSniang1.png",
+      "category": "public.app-category.utilities"
+    },
+    "win": {
+      "target": [
+        "nsis",
+        "zip"
+      ],
+      "icon": "assets/DSniang1.png"
+    },
     "linux": {
       "target": [
         "AppImage",
@@ -44,7 +59,7 @@
       "icon": "assets/DSniang1.png",
       "category": "Utility",
       "synopsis": "DeepSeek 余额小鲸鱼桌宠",
-      "description": "DeepSeek 余额小鲸鱼桌宠（Linux 独立版）：余额监控、今日已用记账、峰谷定价、随机台词与音效。"
+      "description": "DeepSeek 余额小鲸鱼桌宠：余额监控、今日已用记账、峰谷定价、随机台词与音效。"
     },
     "artifactName": "${productName}-${version}-${arch}.${ext}"
   }

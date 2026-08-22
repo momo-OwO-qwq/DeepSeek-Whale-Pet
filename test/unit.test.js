@@ -229,6 +229,13 @@ test('config: 消毒 / 原子保存 / 环境变量覆盖', () => {
   assert.strictEqual(s5.theme, 'system', '非法主题回退')
   assert.strictEqual(s5.bubbleTextOk, 'DeepSeek 余额', '空白文案回退默认')
 
+  // 当前默认值：低余额 5 元 / 音量 100% / 大小 1.0 / 闲置不透明度 0.6 / 音效音效1(duck)
+  assert.strictEqual(config.DEFAULTS.lowBalanceThreshold, 5, '低余额默认 5 元')
+  assert.strictEqual(config.DEFAULTS.volume, 1, '音量默认 100%')
+  assert.strictEqual(config.DEFAULTS.scale, 1.0, '大小默认 1.0')
+  assert.strictEqual(config.DEFAULTS.idleOpacity, 0.6, '闲置不透明度默认 0.6')
+  assert.strictEqual(config.DEFAULTS.soundSet, 'duck', '音效默认音效1(duck)')
+
   // 文案颜色 / 峰谷自定义 / 自定义音效
   const s6 = config.sanitize({ textColorOk: '#ff8800', textColorLow: 'red', peakTextOff: '  谷  ', peakTextOn: '峰峰峰峰峰峰峰峰峰峰峰峰峰', pressSound: '/tmp/a.mp3', releaseSound: '  ' })
   assert.strictEqual(s6.textColorOk, '#ff8800')

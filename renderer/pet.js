@@ -867,6 +867,9 @@
     peakText = c.peakText !== false
     bubbleOn = c.bubbleOn !== false
     idleFade = c.idleFade !== false
+    // 闲置不透明度（可调，0.2 - 1.0）
+    var idleOp = (typeof c.idleOpacity === 'number' && isFinite(c.idleOpacity)) ? Math.min(1, Math.max(0.2, c.idleOpacity)) : 0.6
+    root.style.setProperty('--wp-idle-opacity', String(idleOp))
     soundSet = c.soundSet === 'fx1' ? 'fx1' : 'duck'
     soundVol = typeof c.volume === 'number' ? c.volume : 0.8
     soundOn = soundVol > 0
