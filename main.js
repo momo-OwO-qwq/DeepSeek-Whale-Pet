@@ -7,7 +7,7 @@
 const path = require('path')
 const fs = require('fs')
 const os = require('os')
-const { app, BrowserWindow, Tray, Menu, globalShortcut, ipcMain, screen, Notification, nativeImage, dialog, nativeTheme } = require('electron')
+const { app, BrowserWindow, Tray, Menu, globalShortcut, ipcMain, screen, Notification, nativeImage, dialog, nativeTheme, shell } = require('electron')
 
 const configMod = require('./lib/config')
 const balanceMod = require('./lib/balance')
@@ -65,6 +65,7 @@ function main() {
 
 async function onReady() {
   balanceService = new balanceMod.BalanceService()
+  linesMod.readPool() // 启动即生成随机台词默认池（~/.config/whale-pet/lines.json，首次）
   createPetWindow()
   createMenuWindow() // 隐藏创建；打开时由 openMenu() 居中
   applyNativeTheme()
@@ -341,6 +342,15 @@ function registerIpc() {
   ipcMain.handle('config:get', () => {
     const cfg = configMod.getEffective()
     if (process.env.WHALE_PET_TRACE === '1') console.log('[trace] config:get scale=' + cfg.scale + ' dir=' + configMod.CONFIG_DIR)
+    // 附带配置路径，供设置窗「打开文件/目录」按钮使用
+    cfg.paths = {
+      config: configMod.CONFIG_FILE,
+      usage: configMod.USAGE_FILE,
+      lines: linesMod.LINES_FILE,
+      configDir: configMod.CONFIG_DIR,
+      sounds: path.join(configMod.CONFIG_DIR, 'sounds'),
+      images: path.join(configMod.CONFIG_DIR, 'images'),
+    }
     return cfg
   })
 
@@ -488,7 +498,8 @@ function registerIpc() {
 
   // ---------- 主图 / 预警图上传（复制到配置目录，与源文件解耦）----------
   function imagePatchFor(kind) {
-    return kind === 'alert' ? { alertImgPath: 'assets/DSniang02.png' } : { mainImgPath: 'assets/DSniang1.png' }
+    // 预警图默认取 assets/DSniang03.png（无此素材 → getEffective 置空 = 无默认预警图）
+    return kind === 'alert' ? { alertImgPath: 'assets/DSniang03.png' } : { mainImgPath: 'assets/DSniang1.png' }
   }
 
   ipcMain.handle('image:pick', async (e, msg) => {
@@ -562,7 +573,6 @@ function registerIpc() {
   // ---------- 随机台词/动图（~/.config/whale-pet/lines.json，含默认池）----------
   // 首次访问自动写入默认池文件；用户可编辑后点「重载」实时生效。
   const LINES_FILE = linesMod.LINES_FILE
-
   ipcMain.handle('custom:get', () => {
     const data = linesMod.readPool()
     return { ...data, file: LINES_FILE }
@@ -585,6 +595,27 @@ function registerIpc() {
   ipcMain.on('menu:open', () => openMenu())
   ipcMain.on('menu:close', () => {
     if (menuWin && !menuWin.isDestroyed()) menuWin.hide()
+  })
+
+  // ---------- 用系统默认程序打开文件/目录/URL（设置里的「打开」按钮）----------
+  ipcMain.handle('shell:open-path', async (e, msg) => {
+    const target = String(msg && msg.path || '')
+    if (!target) return { ok: false, error: 'empty path' }
+    try {
+      if (/^(https?:|file:)/.test(target)) { await shell.openExternal(target); return { ok: true } }
+      const p = target.replace(/^file:\/\//, '')
+      let err = await shell.openPath(p)
+      if (err && fs.existsSync(p)) {
+        // 文件打开失败（如无法识别）→ 打开所在目录
+        err = await shell.openPath(path.dirname(p))
+      } else if (err) {
+        // 目标不存在 → 打开配置目录
+        await shell.openPath(configMod.CONFIG_DIR)
+      }
+      return err ? { ok: false, error: err } : { ok: true }
+    } catch (err) {
+      return { ok: false, error: String((err && err.message) || err) }
+    }
   })
 }
 

@@ -139,7 +139,7 @@
   var threshold = 10
   var alertImage = false
   var mainImgPath = 'assets/DSniang1.png'
-  var alertImgPath = 'assets/DSniang02.png'
+  var alertImgPath = 'assets/DSniang03.png'
   var bubbleTextOk = 'DeepSeek 余额'
   var bubbleTextLow = '余额预警'
   var textColorOk = ''

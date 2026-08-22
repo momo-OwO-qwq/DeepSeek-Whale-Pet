@@ -35,6 +35,8 @@ contextBridge.exposeInMainWorld('whaleAPI', {
   // 设置窗口
   openMenu: () => ipcRenderer.send('menu:open'),
   closeMenu: () => ipcRenderer.send('menu:close'),
+  // 用系统默认程序打开文件/目录/URL
+  openPath: (path) => ipcRenderer.invoke('shell:open-path', { path }),
   // 事件
   onConfigChanged: (cb) => ipcRenderer.on('config:changed', (_e, cfg) => cb(cfg)),
   onCustomChanged: (cb) => ipcRenderer.on('custom:changed', (_e, data) => cb(data)),

@@ -204,17 +204,20 @@ test('config: 消毒 / 原子保存 / 环境变量覆盖', () => {
   assert.strictEqual(s.peakMode, 'default')
   assert.strictEqual(s.posH, null)
 
-  // 预警换图：默认关闭；开启后路径可自定义
+  // 预警换图：默认关闭；预警图默认取 DSniang03.png（素材缺失 → getEffective 置空）
   const sa = config.sanitize({})
   assert.strictEqual(sa.alertImage, false, '预警换图默认关闭')
-  assert.strictEqual(sa.alertImgPath, 'assets/DSniang02.png')
+  assert.strictEqual(sa.alertImgPath, 'assets/DSniang03.png')
   assert.strictEqual(sa.mainImgPath, 'assets/DSniang1.png', '主图默认内置素材')
   assert.strictEqual(sa.theme, 'system', '主题默认跟随系统')
+  // 机器上无 assets/DSniang03.png → 无默认预警图（alertImgPath 置空）
+  const effAlert = config.getEffective()
+  assert.strictEqual(effAlert.alertImgPath, '', '无 DSniang03.png 时无默认预警图')
   const sa2 = config.sanitize({ alertImage: true, alertImgPath: 'assets/warn.png' })
   assert.strictEqual(sa2.alertImage, true)
   assert.strictEqual(sa2.alertImgPath, 'assets/warn.png')
   const sa3 = config.sanitize({ alertImage: true, alertImgPath: '   ' })
-  assert.strictEqual(sa3.alertImgPath, 'assets/DSniang02.png', '空路径回退默认')
+  assert.strictEqual(sa3.alertImgPath, 'assets/DSniang03.png', '空路径回退默认')
 
   // 主图/主题/气泡文案
   const s4 = config.sanitize({ mainImgPath: '/tmp/my-whale.png', theme: 'dark', bubbleTextOk: '  余额还够用  ', bubbleTextLow: '快没余额了！！！！！超过了二十个字符限制' })

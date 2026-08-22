@@ -13,7 +13,7 @@
     <button class="wm-tab" data-page="look">外观</button>
     <button class="wm-tab" data-page="text">文案</button>
     <button class="wm-tab" data-page="sound">音效</button>
-    <button class="wm-tab" data-page="media">图片台词</button>
+    <button class="wm-tab" data-page="media">图片</button>
   </div>
 
   <div class="wm-body">
@@ -42,7 +42,9 @@
       </label>
       <div class="wm-actions">
         <button id="wm-refresh-now" class="wm-btn">立即刷新余额</button>
+        <button id="wm-config-open" class="wm-btn">打开配置文件</button>
       </div>
+      <div class="wm-note wm-span">配置文件 config.json 保存所有设置（含 API Key，权限 600）。</div>
     </section>
 
     <!-- ================= 数据 ================= -->
@@ -70,7 +72,9 @@
         </label>
         <div class="wm-note">低于该金额时弹通知</div>
       </div>
-      <div id="wm-ledger-note" class="wm-note wm-span">记账文件保存在 ~/.config/whale-pet/usage.json（跨天自动归档最近 30 天）。</div>
+      <div id="wm-ledger-note" class="wm-note wm-span">小鲸鱼记账文件 usage.json（跨天自动归档最近 30 天）。
+        <button id="wm-usage-open" class="wm-mini">打开文件</button>
+      </div>
     </section>
 
     <!-- ================= 外观 ================= -->
@@ -138,6 +142,12 @@
         <button id="wm-color-low-reset" class="wm-mini" title="恢复默认颜色">默认颜色</button>
       </label>
       <div class="wm-note wm-span">分别设置「余额充足」与「低于预警阈值」两种状态下气泡第一行文字与颜色；超长文字将自动截断。</div>
+      <div class="wm-row wm-span">
+        <span class="wm-label">随机台词</span>
+        <button id="wm-custom-reload" class="wm-btn">重新载入</button>
+        <button id="wm-custom-open" class="wm-btn">打开文件</button>
+      </div>
+      <div id="wm-custom-note" class="wm-note">台词池保存在 lines.json（启动时自动生成，含全部默认值），可自由增删改后点「重新载入」。</div>
     </section>
 
     <!-- ================= 音效 ================= -->
@@ -165,16 +175,18 @@
           <button id="wm-release-reset" class="wm-btn wm-btn-mini">恢复默认</button>
         </div>
       </div>
-      <div id="wm-sound-note" class="wm-note">上传的音源会复制到 ~/.config/whale-pet/sounds/ 并优先于音效方案；音量调至 0 即静音。</div>
+      <div id="wm-sound-note" class="wm-note">上传的音源会复制到 ~/.config/whale-pet/sounds/ 并优先于音效方案；音量调至 0 即静音。
+        <button id="wm-sounds-open" class="wm-mini">打开目录</button>
+      </div>
     </section>
 
-    <!-- ================= 图片与台词 ================= -->
+    <!-- ================= 图片 ================= -->
     <section class="wm-page" id="page-media" hidden>
       <label class="wm-row wm-span">
         <span class="wm-label">预警换图</span>
         <input id="wm-alertimage" class="wm-check" type="checkbox" title="余额低于阈值时自动切换为预警图">
-        <span class="wm-unit">余额低于阈值时自动切换为下方预警图</span>
       </label>
+      <div id="wm-alert-avail" class="wm-note"></div>
       <div class="wm-grid">
         <div class="wm-row">
           <span class="wm-label">主图</span>
@@ -188,12 +200,11 @@
         </div>
       </div>
       <div id="wm-main-note" class="wm-note">主图：默认 assets/DSniang1.png（上传后复制到配置目录，随系统保留）</div>
-      <div id="wm-alert-note" class="wm-note">预警图：默认 assets/DSniang02.png（与主图相互独立，互不影响）</div>
+      <div id="wm-alert-note" class="wm-note">预警图：与主图相互独立，互不影响</div>
       <div class="wm-row wm-span">
-        <span class="wm-label">随机台词</span>
-        <button id="wm-custom-reload" class="wm-btn">重新载入台词文件</button>
+        <span class="wm-label">图像目录</span>
+        <button id="wm-images-open" class="wm-btn">打开目录</button>
       </div>
-      <div id="wm-custom-note" class="wm-note">台词池保存在 ~/.config/whale-pet/lines.json（首次自动生成、含全部默认值），编辑后点上方按钮生效。</div>
     </section>
 
     <div class="wm-foot">

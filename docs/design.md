@@ -132,7 +132,7 @@ petWin.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
 
 ### 4.7 主图 / 预警图（可上传，彼此独立）
 
-- 配置：`mainImgPath`（默认 `assets/DSniang1.png`）、`alertImgPath`（默认 `assets/DSniang02.png`）、`alertImage`（默认 false）。
+- 配置：`mainImgPath`（默认 `assets/DSniang1.png`）、`alertImgPath`（默认 `assets/DSniang03.png`；**若该素材不存在则置空 = 无默认预警图**，需用户上传或添加素材）、`alertImage`（默认 false）。
 - **上传**：设置窗「选择图片」→ 主进程 `dialog.showOpenDialog`（png/jpg/jpeg/gif/webp）→ **复制**到 `~/.config/whale-pet/images/main.*` 或 `alert.*` → 写回绝对路径到配置（与源文件解耦，源文件移动/删除不影响）；「恢复默认」写回内置相对路径。
 - **触发**：`alertImage === true` 且余额正常（status ok）且 `0 <= 余额 < lowBalanceThreshold` 时使用预警图，否则使用主图 —— 两张图互不干扰、各自独立。
 - **换图**：`img.src` 切换并重建 alpha 命中探针（`setupHitTest(src)`，探针加载期间放宽为全命中保证可点击）；预警时叠加红色 `!` 徽标与 🥺 情绪表情。

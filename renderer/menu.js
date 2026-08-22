@@ -28,9 +28,14 @@
     releasePick: $('wm-release-pick'), releaseReset: $('wm-release-reset'),
     soundNote: $('wm-sound-note'),
     alertImage: $('wm-alertimage'),
+    alertAvail: $('wm-alert-avail'),
     mainPick: $('wm-main-pick'), mainReset: $('wm-main-reset'), mainNote: $('wm-main-note'),
     alertPick: $('wm-alert-pick'), alertReset: $('wm-alert-reset'), alertNote: $('wm-alert-note'),
-    customReload: $('wm-custom-reload'), customNote: $('wm-custom-note'),
+    customReload: $('wm-custom-reload'), customOpen: $('wm-custom-open'), customNote: $('wm-custom-note'),
+    configOpen: $('wm-config-open'),
+    usageOpen: $('wm-usage-open'),
+    soundsOpen: $('wm-sounds-open'),
+    imagesOpen: $('wm-images-open'),
     refreshNow: $('wm-refresh-now'),
   }
 
@@ -74,7 +79,7 @@
   else if (systemDark.addListener) systemDark.addListener(onSystemThemeChange)
 
   function imgPathNote(path) {
-    if (!path) return ''
+    if (!path) return '未提供（无默认预警图，可上传）'
     if (path.indexOf('assets/') === 0) return path + '（内置素材）'
     return path.split('/').pop() + '（已复制到配置目录）'
   }
@@ -106,7 +111,15 @@
     els.volV.textContent = Math.round((cfg.volume != null ? cfg.volume : 0.8) * 100) + '%'
     els.alertImage.checked = cfg.alertImage === true
     els.mainNote.textContent = '主图：' + imgPathNote(cfg.mainImgPath || 'assets/DSniang1.png')
-    els.alertNote.textContent = '预警图：' + imgPathNote(cfg.alertImgPath || 'assets/DSniang02.png') + '（与主图独立）'
+    els.alertNote.textContent = '预警图：' + imgPathNote(cfg.alertImgPath || '') + '（与主图独立）'
+    if (cfg.alertImgPath) {
+      els.alertAvail.textContent = '预警换图：余额低于阈值时自动切换为预警图'
+      els.alertAvail.className = 'wm-note wm-note-ok'
+      els.alertImage.disabled = false
+    } else {
+      els.alertAvail.textContent = '未提供默认预警图（无 assets/DSniang03.png）：开启预警换图需先在下方上传预警图。'
+      els.alertAvail.className = 'wm-note wm-note-warn'
+    }
     if (cfg.apiKeySource === 'env') {
       els.apiKeyNote.textContent = '当前使用环境变量 DEEPSEEK_API_KEY（此处可覆盖文件配置）'
       els.apiKeyNote.className = 'wm-note wm-note-ok'
@@ -301,6 +314,20 @@
       els.customReload.disabled = false
     }
   })
+
+  // ---------- 打开文件/目录（用系统默认程序；引用配置内路径） ----------
+  function bindOpen(btn, getPath) {
+    if (!btn) return
+    btn.addEventListener('click', async function () {
+      btn.disabled = true
+      try { await api.openPath(getPath()) } finally { btn.disabled = false }
+    })
+  }
+  bindOpen(els.customOpen, function () { return (currentCfg && currentCfg.paths && currentCfg.paths.lines) || '' })
+  bindOpen(els.configOpen, function () { return (currentCfg && currentCfg.paths && currentCfg.paths.config) || '' })
+  bindOpen(els.usageOpen, function () { return (currentCfg && currentCfg.paths && currentCfg.paths.usage) || '' })
+  bindOpen(els.soundsOpen, function () { return (currentCfg && currentCfg.paths && currentCfg.paths.sounds) || '' })
+  bindOpen(els.imagesOpen, function () { return (currentCfg && currentCfg.paths && currentCfg.paths.images) || '' })
 
   // ---------- 立即刷新 ----------
   els.refreshNow.addEventListener('click', async function () {
