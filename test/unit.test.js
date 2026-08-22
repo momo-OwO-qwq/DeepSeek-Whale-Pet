@@ -207,11 +207,23 @@ test('config: 消毒 / 原子保存 / 环境变量覆盖', () => {
   const sa = config.sanitize({})
   assert.strictEqual(sa.alertImage, false, '预警换图默认关闭')
   assert.strictEqual(sa.alertImgPath, 'assets/DSniang02.png')
+  assert.strictEqual(sa.mainImgPath, 'assets/DSniang1.png', '主图默认内置素材')
+  assert.strictEqual(sa.theme, 'system', '主题默认跟随系统')
   const sa2 = config.sanitize({ alertImage: true, alertImgPath: 'assets/warn.png' })
   assert.strictEqual(sa2.alertImage, true)
   assert.strictEqual(sa2.alertImgPath, 'assets/warn.png')
   const sa3 = config.sanitize({ alertImage: true, alertImgPath: '   ' })
   assert.strictEqual(sa3.alertImgPath, 'assets/DSniang02.png', '空路径回退默认')
+
+  // 主图/主题/气泡文案
+  const s4 = config.sanitize({ mainImgPath: '/tmp/my-whale.png', theme: 'dark', bubbleTextOk: '  余额还够用  ', bubbleTextLow: '快没余额了！！！！！超过了二十个字符限制' })
+  assert.strictEqual(s4.mainImgPath, '/tmp/my-whale.png')
+  assert.strictEqual(s4.theme, 'dark')
+  assert.strictEqual(s4.bubbleTextOk, '余额还够用', 'trim')
+  assert.ok(s4.bubbleTextLow.length <= 20, '文案限 20 字符, got ' + s4.bubbleTextLow.length)
+  const s5 = config.sanitize({ theme: 'rainbow', bubbleTextOk: '   ' })
+  assert.strictEqual(s5.theme, 'system', '非法主题回退')
+  assert.strictEqual(s5.bubbleTextOk, 'DeepSeek 余额', '空白文案回退默认')
 
   // 保存 + 读回
   const saved = config.save({ apiKey: 'sk-123', scale: 1.7, volume: 0.5 })

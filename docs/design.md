@@ -40,7 +40,7 @@
 │  ├── 窗口：pet（透明置顶桌宠）/ menu（透明设置弹窗）                        │
 │  ├── 托盘 / 全局热键 / 单实例 / XDG 自启 / 系统通知                        │
 │  ├── IPC 处理器（见 §5）                                                    │
-│  └── 拖拽引擎：16ms 轮询 getCursorScreenPoint() → setPosition()            │
+│  └── 拖拽：由渲染进程 pointermove 事件驱动（见 §4.2）                    │
 │ lib/balance.js ── fetch(api.deepseek.com/user/balance)  25s TTL 缓存       │
 │                  fetch(platform .../usage/by_api_key/…)  峰谷定价换算       │
 │ lib/ledger.js  ── 余额差值记账 usage.json（跨天归档 30 天）                │
@@ -75,13 +75,14 @@ petWin.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
 - **最终方案（与参考实现 deepseek-whale-pet 一致）**：**完全不做 OS 级穿透**——窗口始终接收鼠标事件；渲染进程用 `isWhaleHit` 画布 alpha 判定，鲸鱼本体（及气泡/菜单按钮）之外的点按直接忽略。代价是窗口矩形内的透明区域会吃掉点击，换来的是**真实鼠标点击 100% 可靠**，并用 xdotool 真实点击自动化验证通过（修复前 BUBBLE=false，修复后 BUBBLE=true 连续 14 次探针采样）。
 - `focusable: false` 也被移除：与参考实现一致的最小窗口属性集，避免个别 WM 下的输入怪癖。
 
-### 4.2 拖拽 + 吸附
+### 4.2 拖拽 + 吸附（v1.1 重写：不再依赖系统光标 API）
 
-- 渲染进程 `pointerdown` 记录按压偏移 `(clientX, clientY)` → `dragStart` → **主进程 16ms 轮询光标**，`windowPos = cursor - offset` 并钳制到光标所在屏 workArea。1:1 跟手不依赖渲染进程事件，**指针离开窗口也不失跟手**（这是直接 `-webkit-app-region: drag` 做不到的）。
-- 渲染进程 `setPointerCapture` 保证窗口外松手也能收到 `pointerup`，避免拖拽卡死。
-- 松手回到渲染进程：`dragEnd()` 取最终窗口位置 → 四分之一吸附判定（中心 x < 1/4 宽 → 左、> 3/4 → 右；y 同）→ `setWindowPos` + `setConfig({posX,posY,posH,posV})` 记忆位置。
-- **左吸附镜像**：`state.h==='left'` 时根节点 `scaleX(-1)`，气泡文字反向 `scaleX(-1)` 保持可读——与原版一致。
-- **缩放固定角**：缩放改变窗口尺寸时，非翻转锚鲸鱼右下角、翻转锚左下角不动（`fixX/fixY` 计算），随后钳制回 workArea。
+- 渲染进程 `pointerdown` 记录**拖动起点窗口位置**（`state.posX/posY`，渲染进程始终维护）与按压位置 `(clientX, clientY)`；`setPointerCapture` 保证指针移出窗口仍持续收到 `pointermove`/`pointerup`。
+- 每次 `pointermove`：`目标 = 起点窗口位置 + (当前 client - 起点 client)` —— **完全事件驱动，不调用 `screen.getCursorScreenPoint()`**；`requestAnimationFrame` 节流后经 `setWindowPos` 发送给主进程 1:1 跟手（拖过四个边由 clamp 收住）。
+- v1.0 曾用主进程 16ms 轮询光标（`getCursorScreenPoint`）驱动拖拽，实测该 API 在 Linux/XWayland 下是**事件缓存**：xdotool 移动指针后 App 读到的是过期坐标 → 真实拖动几乎不动（用户报告「不能拖动到桌面四边」）。重写后以真实指针事件为准，任意距离可达任何桌面边，冒烟测试用 `sendInputEvent` 全链路验证（常规拖动 moved=true、连续向上拖到达 workArea 上边缘 reached=true）。
+- 松手回渲染进程完成**四分之一吸附**（中心 x < 1/4 → 左、> 3/4 → 右；y 同理），吸附后 `setConfig({posX,posY,posH,posV})` 记忆位置。
+- **左吸附镜像**：`state.h==='left'` 时根节点 `scaleX(-1)`，气泡文字反向 `scaleX(-1)` 保持可读。
+- **缩放固定角**：缩放改变窗口尺寸时，非翻转锚鲸鱼右下角、翻转锚左下角不动（`fixX/fixY`），随后钳制回 workArea。
 
 ### 4.3 余额拉取（与原版一致）
 
@@ -127,12 +128,18 @@ petWin.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
 
 `<audio>` 加载 `assets/Ya1/Ya2.mp3`（duck）或 `D1/D2.mp3`（fx1）；按压播放 press，松手在 press 结尾前 100ms 或结束后播放 release（与原版时序一致）；`autoplayPolicy: no-user-gesture-required` 免手势门槛；音量 0 即静音。
 
-### 4.7 预警换图（默认关闭）
+### 4.7 主图 / 预警图（可上传，彼此独立）
 
-- 配置：`alertImage: false`（默认）+ `alertImgPath: 'assets/DSniang02.png'`（相对应用根目录或绝对路径）。
-- 触发：`alertImage === true` 且余额正常（status ok）且 `0 <= 余额 < lowBalanceThreshold`。
-- 行为：`img.src` 切换为预警图并重建 alpha 命中探针（`setupHitTest(src)`，探针加载期间放宽为全命中，保证可点击）；恢复阈值以上后换回 `DSniang1.png`。同时显示红色 `!` 徽标，与 🥺 情绪表情叠加提示。
+- 配置：`mainImgPath`（默认 `assets/DSniang1.png`）、`alertImgPath`（默认 `assets/DSniang02.png`）、`alertImage`（默认 false）。
+- **上传**：设置窗「选择图片」→ 主进程 `dialog.showOpenDialog`（png/jpg/jpeg/gif/webp）→ **复制**到 `~/.config/whale-pet/images/main.*` 或 `alert.*` → 写回绝对路径到配置（与源文件解耦，源文件移动/删除不影响）；「恢复默认」写回内置相对路径。
+- **触发**：`alertImage === true` 且余额正常（status ok）且 `0 <= 余额 < lowBalanceThreshold` 时使用预警图，否则使用主图 —— 两张图互不干扰、各自独立。
+- **换图**：`img.src` 切换并重建 alpha 命中探针（`setupHitTest(src)`，探针加载期间放宽为全命中保证可点击）；预警时叠加红色 `!` 徽标与 🥺 情绪表情。
 - 判定在每次 `render()` 中执行（含余额变化、模式切换、配置广播），与低余额通知共用阈值语义。
+
+### 4.8 自定义气泡文案 + 暗色主题
+
+- **气泡文案**：`bubbleTextOk` / `bubbleTextLow`（默认 `DeepSeek 余额` / `余额预警`，均限 20 字符，config 消毒时 trim + slice(0,20)，空白回退默认）。气泡默认内容的第一行文字按 `isLowBalance()` 二选一；随机台词段不受影响。
+- **暗色主题**：设置窗 `theme`（system/light/dark）。菜单页用 CSS 变量实现双主题，`menu.js` 根据配置 + `matchMedia('(prefers-color-scheme: dark)')` 设置 `html[data-theme]` 并监听系统变化；`system` 模式下系统切换实时跟随。鲸鱼本体（浅色 UI）不受主题影响。
 
 ## 5. IPC 协议（preload → 主进程）
 
@@ -142,7 +149,7 @@ petWin.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
 | `balance:get` | invoke | 余额快照（含 todayUsage/isPeak/usageMode/stale/error） |
 | `window:get-workarea` | invoke | 鲸鱼所在显示器的 workArea |
 | `window:resize` / `window:set-pos` | send | 改窗口尺寸/位置（resize 后重申置顶，防部分 WM 掉层） |
-| `drag:start` / `drag:end` | invoke | 主进程光标轮询拖拽；end 返回最终位置 |
+| `image:pick` / `image:reset` | invoke | 上传主图/预警图（复制到配置目录）/ 恢复内置默认 |
 | `menu:open` / `menu:close` | send | 打开（鲸鱼旁、屏幕内钳制）/收起设置窗 |
 | `config:changed` / `whale:refresh` | 事件 | 广播回渲染进程 |
 
@@ -158,8 +165,8 @@ petWin.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
 
 ## 7. 验证
 
-- **单元测试**（`npm test`，纯 Node 无网络）：峰谷边界、定价表、`pickBalanceInfo` 优先级、token→金额换算、`fetchBalance` 重试/4xx 不重试/超时瞬态、记账累计/充值不扣减/跨天归档、配置消毒/0600/环境变量覆盖/预警换图字段 —— 全部通过。
-- **冒烟测试**（`npm run smoke`，真实启动）：截图验证渲染（鲸鱼右下角 90% 覆盖、点击后白色气泡出现）、模拟点击（气泡弹出）、模拟拖拽（落点与期望钳制位置误差 < 2px）、真实调用余额接口（无 Key 返回 NO_KEY、坏 Key 返回 HTTP 401）—— 全部通过。
+- **单元测试**（`npm test`，纯 Node 无网络）：峰谷边界、定价表、`pickBalanceInfo` 优先级、token→金额换算、`fetchBalance` 重试/4xx 不重试/超时瞬态、记账累计/充值不扣减/跨天归档、配置消毒/0600/环境变量覆盖/预警换图/主图路径/主题/20 字符文案 —— 全部通过。
+- **冒烟测试**（`npm run smoke`，真实启动）：截图验证渲染（鲸鱼右下角覆盖、点击后白色气泡出现）、模拟点击（气泡弹出）、**真实输入管线拖拽**（事件驱动跟手 moved=true、连续拖拽到达 workArea 上边缘 reached=true）、真实调用余额接口（无 Key 返回 NO_KEY、坏 Key 返回 HTTP 401）—— 全部通过。另以「上传图片 + 深色主题 + 自定义文案」配置跑通：主图来自用户上传路径（像素级确认渲染）、菜单深色主题（平均色 RGB 43,46,61）。
 - **真实鼠标点击验证**（xdotool，详见 §4.1）：修复前（OS 级穿透方案）点击后气泡不出现（BUBBLE=false）；修复后（整窗接收事件方案）真实点击立即弹出气泡（连续 14 次探针采样 BUBBLE=true）。
 - 手动清单见 README「验证」章节。
 

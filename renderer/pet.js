@@ -142,7 +142,10 @@
   var refreshIntervalMs = 60000
   var threshold = 10
   var alertImage = false
+  var mainImgPath = 'assets/DSniang1.png'
   var alertImgPath = 'assets/DSniang02.png'
+  var bubbleTextOk = 'DeepSeek 余额'
+  var bubbleTextLow = '余额预警'
   var currentImgSrc = ''
   var lastPointerMoveAt = Date.now()
 
@@ -276,8 +279,8 @@
     gifEl.style.opacity = ''
     labelEl.style.display = ''
     labelEl.className = 'wp-label'
-    labelEl.textContent = 'DeepSeek 余额'
     labelEl.style.color = ''
+    setStateLabel()
     amountEl.style.display = ''
     amountEl.className = 'wp-amount'
     amountEl.style.color = ''
@@ -374,6 +377,7 @@
       applyBubbleLines(bubbleRandomLines)
     } else {
       setHint(hint)
+      setStateLabel()
     }
     updateMood()
   }
@@ -385,7 +389,7 @@
     else if (isLowBalance()) mood = '🥺'
     if (moodEl.textContent !== mood) moodEl.textContent = mood
     moodEl.classList.toggle('wp-mood-show', !!mood)
-    updateAlertImage()
+    updateHeroImage()
   }
 
   function isLowBalance() {
@@ -393,25 +397,32 @@
       state.balance >= 0 && state.balance < threshold
   }
 
-  function resolveAlertImgPath(p) {
+  // 气泡第一行：余额充足/预警 两套自定义文案（限 20 字符，config 已消毒）
+  function setStateLabel() {
+    var t = isLowBalance() ? (bubbleTextLow || 'DeepSeek 余额') : (bubbleTextOk || 'DeepSeek 余额')
+    if (labelEl.textContent !== t) labelEl.textContent = t
+  }
+
+  function resolveImgPath(p) {
     var s = String(p || '').trim()
-    if (!s) return '../assets/DSniang1.png'
-    // http/https/file 或绝对路径原样使用（file:// 前缀由渲染器支持）
-    if (/^(https?:|file:)/.test(s) || s.charAt(0) === '/') return s
-    // 相对路径基于应用根目录：renderer/pet.html 位于 renderer/ 下，前缀 ../assets/
+    if (!s) return ''
+    // http/https/file 或绝对路径原样使用
+    if (/^(https?:|file:)/.test(s)) return s
+    if (s.charAt(0) === '/') return 'file://' + s
+    // 相对路径基于应用根目录：renderer/pet.html 位于 renderer/ 下 → ../assets/
     return s.indexOf('assets/') === 0 ? '../' + s : '../' + s
   }
 
-  // 预警换图：启用 && 余额低于阈值 → 切换为预警图片；恢复 → 换回默认鲸鱼
-  function updateAlertImage() {
+  // 主图/预警图二选一：预警换图开启且余额低于阈值 → 预警图；否则主图
+  function updateHeroImage() {
     var low = alertImage && isLowBalance()
-    var want = low ? resolveAlertImgPath(alertImgPath) : '../assets/DSniang1.png'
-    if (want !== currentImgSrc) {
+    var want = low ? resolveImgPath(alertImgPath) : resolveImgPath(mainImgPath)
+    if (want && want !== currentImgSrc) {
       currentImgSrc = want
       img.src = want
       setupHitTest(want)
     }
-    alertBadge.classList.toggle('wp-alert-badge-show', low)
+    alertBadge.classList.toggle('wp-alert-badge-show', !!low)
   }
 
   async function refresh(manual) {
@@ -553,29 +564,39 @@
   }
 
   // ------------------------------------------------------------- 指针交互
+  // 拖拽由渲染进程自己的 pointermove 驱动（与 DSH 原版一致）：
+  //   - 绝对定位：目标窗口位置 = 拖动起点窗口位置 + 指针位移（client 坐标）
+  //     —— 完全不依赖 screen.getCursorScreenPoint()（该 API 在 Linux/XWayland
+  //     上是事件缓存，实测会过期，曾导致拖不动/拖不到桌面四边）。
+  //   - setPointerCapture 保证指针移出窗口仍持续收到 pointermove/pointerup。
+  //   - requestAnimationFrame 节流发送窗口位置（1:1 跟手）。
+  var dragFrameId = null
+  var pendingDrag = null
+
   function onDocPointerDown(e) {
     if (e.target && e.target.closest && (e.target.closest('.wp-menu-btn') || e.target.closest('.wp-bubble'))) return
     if (e.button !== 0 && e.pointerType === 'mouse') return
     if (!isWhaleHit(e)) return
     try { e.preventDefault() } catch (err) {}
     api.closeMenu() // 点击鲸鱼时主动收起设置窗口
-    var rect = root.getBoundingClientRect()
     drag = {
       active: true,
       pointerId: e.pointerId,
       startX: e.clientX,
       startY: e.clientY,
-      offsetX: e.clientX,
-      offsetY: e.clientY,
-      w: rect.width,
-      h: rect.height,
+      startWinX: state.posX,
+      startWinY: state.posY,
       moved: false,
+      wa: null,
     }
     try { e.target.setPointerCapture(e.pointerId) } catch (err) {}
     root.classList.add('wp-dragging')
     pressDown()
     setWidgetCursor('grabbing')
-    api.dragStart(drag.offsetX, drag.offsetY)
+    // 预取当前 workArea（异步；到位前的移动先按捕获/默认值钳制）
+    api.getWorkArea().then(function (wa) {
+      if (drag && drag.active && wa) drag.wa = wa
+    }).catch(function () {})
     // onDocPointerMove 是持久监听（启动时注册），不在此重复注册，
     // 否则拖动结束 removeEventListener 会把持久监听一并摘掉。
     document.addEventListener('pointerup', onDocPointerUp, true)
@@ -588,12 +609,43 @@
       var dx = e.clientX - drag.startX
       var dy = e.clientY - drag.startY
       if (dx * dx + dy * dy >= CLICK_SQ) drag.moved = true
+      pendingDrag = { x: drag.startWinX + dx, y: drag.startWinY + dy }
+      scheduleDragMove()
       return
     }
     // 悬停在鲸鱼上 → 显示菜单按钮 + 抓取光标
     var over = isWhaleHit(e)
     menuBtn.classList.toggle('wp-menu-btn-visible', over)
     setWidgetCursor(over ? 'grab' : '')
+  }
+
+  function scheduleDragMove() {
+    if (dragFrameId) return
+    dragFrameId = requestAnimationFrame(function () {
+      dragFrameId = null
+      if (!drag || !drag.active || !pendingDrag) return
+      var p = pendingDrag
+      pendingDrag = null
+      applyDragTarget(p.x, p.y)
+    })
+  }
+
+  function applyDragTarget(tx, ty) {
+    var wa = drag.wa
+    if (!wa) return // workArea 未就绪：下一帧再处理（或使用已有坐标钳制）
+    var x = clamp(tx, wa.x, wa.x + wa.width - state.winW)
+    var y = clamp(ty, wa.y, wa.y + wa.height - state.winH)
+    state.posX = x
+    state.posY = y
+    api.setWindowPos(x, y)
+    // 目标被钳制（可能已到边/跨显示器）→ 刷新 workArea 供后续移动使用
+    if (x !== tx || y !== ty) refreshDragWorkArea()
+  }
+
+  function refreshDragWorkArea() {
+    api.getWorkArea().then(function (wa) {
+      if (drag && drag.active && wa) drag.wa = wa
+    }).catch(function () {})
   }
 
   async function onDocPointerUp(e) {
@@ -606,7 +658,6 @@
     root.classList.remove('wp-dragging')
     setWidgetCursor('')
     if (clickAllowed && !drag.moved) {
-      api.dragEnd()
       showBubble()
       refresh(true)
       return
@@ -626,9 +677,8 @@
   }
 
   async function finishDrag() {
-    var end = await api.dragEnd() // {x, y} 当前窗口位置
     var wa = await api.getWorkArea()
-    var x = end.x, y = end.y
+    var x = state.posX, y = state.posY
     var w = state.winW, h = state.winH
     var cx = x + w / 2
     var cy = y + h / 2
@@ -769,6 +819,9 @@
     threshold = typeof c.lowBalanceThreshold === 'number' ? c.lowBalanceThreshold : 10
     alertImage = c.alertImage === true
     if (typeof c.alertImgPath === 'string' && c.alertImgPath.trim()) alertImgPath = c.alertImgPath.trim()
+    if (typeof c.mainImgPath === 'string' && c.mainImgPath.trim()) mainImgPath = c.mainImgPath.trim()
+    if (typeof c.bubbleTextOk === 'string' && c.bubbleTextOk.trim()) bubbleTextOk = c.bubbleTextOk.trim().slice(0, 20)
+    if (typeof c.bubbleTextLow === 'string' && c.bubbleTextLow.trim()) bubbleTextLow = c.bubbleTextLow.trim().slice(0, 20)
     var interval = Math.round((typeof c.refreshInterval === 'number' ? c.refreshInterval : 60) * 1000)
     if (interval !== refreshIntervalMs) {
       refreshIntervalMs = interval

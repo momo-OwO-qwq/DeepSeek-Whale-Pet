@@ -13,6 +13,15 @@
       <button id="wm-close" class="wm-x" title="关闭">×</button>
     </div>
 
+    <label class="wm-row">
+      <span class="wm-label">主题</span>
+      <select id="wm-theme">
+        <option value="system">跟随系统</option>
+        <option value="light">浅色</option>
+        <option value="dark">深色</option>
+      </select>
+    </label>
+
     <label class="wm-row wm-key">
       <span class="wm-label">API Key</span>
       <div class="wm-fill">
@@ -98,6 +107,29 @@
     <label class="wm-row">
       <span class="wm-label">预警换图</span>
       <input id="wm-alertimage" class="wm-check" type="checkbox" title="余额低于阈值时切换鲸鱼图片（默认关闭）">
+    </label>
+
+    <div class="wm-row">
+      <span class="wm-label">主图</span>
+      <button id="wm-main-pick" class="wm-btn">选择图片</button>
+      <button id="wm-main-reset" class="wm-btn">恢复默认</button>
+    </div>
+    <div id="wm-main-note" class="wm-note">默认 assets/DSniang1.png</div>
+
+    <div class="wm-row">
+      <span class="wm-label">预警图</span>
+      <button id="wm-alert-pick" class="wm-btn">选择图片</button>
+      <button id="wm-alert-reset" class="wm-btn">恢复默认</button>
+    </div>
+    <div id="wm-alert-note" class="wm-note">默认 assets/DSniang02.png（与主图相互独立）</div>
+
+    <label class="wm-row">
+      <span class="wm-label">文案·充足</span>
+      <input id="wm-text-ok" class="wm-text" type="text" maxlength="20" placeholder="余额充足时气泡第一行" title="限 20 字符">
+    </label>
+    <label class="wm-row">
+      <span class="wm-label">文案·预警</span>
+      <input id="wm-text-low" class="wm-text" type="text" maxlength="20" placeholder="预警状态气泡第一行" title="限 20 字符">
     </label>
 
     <label class="wm-row">

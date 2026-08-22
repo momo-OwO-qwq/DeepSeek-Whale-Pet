@@ -7,7 +7,7 @@
 const path = require('path')
 const fs = require('fs')
 const os = require('os')
-const { app, BrowserWindow, Tray, Menu, globalShortcut, ipcMain, screen, Notification, nativeImage } = require('electron')
+const { app, BrowserWindow, Tray, Menu, globalShortcut, ipcMain, screen, Notification, nativeImage, dialog } = require('electron')
 
 const configMod = require('./lib/config')
 const balanceMod = require('./lib/balance')
@@ -15,7 +15,7 @@ const balanceMod = require('./lib/balance')
 const IS_SMOKE = process.argv.includes('--smoke-test')
 const BASE_PX = 320
 const MENU_W = 376
-const MENU_H = 640
+const MENU_H = 860
 const LOW_NOTIFY_THROTTLE_MS = 30 * 60 * 1000
 
 // ---- Wayland：强制走 XWayland，否则 setPosition / 拖拽不可用 --------------
@@ -28,8 +28,6 @@ let petWin = null
 let menuWin = null
 let tray = null
 let balanceService = null
-let dragState = null
-let dragTimer = null
 let lastLowNotifyAt = 0
 
 // ------------------------------- 单实例 ------------------------------------
@@ -301,10 +299,6 @@ function checkLowBalance(payload) {
 // ================================ IPC =====================================
 function hasOwn(o, k) { return Object.prototype.hasOwnProperty.call(o || {}, k) }
 
-function clampNum(v, lo, hi) {
-  return Math.min(Math.max(v, lo), Math.max(lo, hi))
-}
-
 async function getWorkAreaForPet() {
   const b = (petWin && !petWin.isDestroyed()) ? petWin.getBounds() : null
   const wa = b ? screen.getDisplayMatching(b).workArea : screen.getPrimaryDisplay().workArea
@@ -345,7 +339,7 @@ function registerIpc() {
     const h = Math.max(80, Math.round(Number(msg && msg.h) || BASE_PX))
     petWin.setSize(w, h)
     // 部分 WM 在 setSize 后会掉置顶层，重新声明
-    petWin.setAlwaysOnTop(true, 'floating')
+    petWin.setAlwaysOnTop(true, 'screen-saver')
   })
 
   ipcMain.on('window:set-pos', (e, msg) => {
@@ -355,44 +349,40 @@ function registerIpc() {
     petWin.setPosition(x, y)
   })
 
-  // ---------- 拖拽（主进程轮询光标，窗口 1:1 跟手）----------
-  ipcMain.handle('drag:start', async (e, msg) => {
-    if (!petWin || petWin.isDestroyed()) return { ok: false }
-    dragState = {
-      offsetX: Number(msg && msg.offsetX) || 0,
-      offsetY: Number(msg && msg.offsetY) || 0,
-      lastPos: null,
-      startedAt: Date.now(),
+  // ---------- 主图 / 预警图上传（复制到配置目录，与源文件解耦）----------
+  function imagePatchFor(kind) {
+    return kind === 'alert' ? { alertImgPath: 'assets/DSniang02.png' } : { mainImgPath: 'assets/DSniang1.png' }
+  }
+
+  ipcMain.handle('image:pick', async (e, msg) => {
+    const kind = msg && msg.kind === 'alert' ? 'alert' : 'main'
+    try {
+      const res = await dialog.showOpenDialog(menuWin && !menuWin.isDestroyed() ? menuWin : undefined, {
+        title: kind === 'alert' ? '选择预警图片' : '选择主图',
+        filters: [{ name: '图片', extensions: ['png', 'jpg', 'jpeg', 'gif', 'webp'] }],
+        properties: ['openFile'],
+      })
+      if (res.canceled || !res.filePaths || !res.filePaths[0]) return { ok: false, canceled: true }
+      const src = res.filePaths[0]
+      const imagesDir = path.join(configMod.CONFIG_DIR, 'images')
+      fs.mkdirSync(imagesDir, { recursive: true, mode: 0o700 })
+      const ext = (path.extname(src) || '.png').toLowerCase()
+      const dest = path.join(imagesDir, (kind === 'alert' ? 'alert' : 'main') + ext)
+      fs.copyFileSync(src, dest)
+      const patch = kind === 'alert' ? { alertImgPath: dest } : { mainImgPath: dest }
+      configMod.save(patch)
+      broadcast('config:changed', configMod.getEffective())
+      return { ok: true, path: dest }
+    } catch (err) {
+      return { ok: false, error: String((err && err.message) || err) }
     }
-    if (dragTimer) clearInterval(dragTimer)
-    // 超出窗口边界的 pointermove 不会到达渲染进程，因此在主进程按 16ms 轮询跟手
-    dragTimer = setInterval(() => {
-      if (!dragState || !petWin || petWin.isDestroyed()) return
-      const cursor = screen.getCursorScreenPoint()
-      const bounds = petWin.getBounds()
-      const wa = screen.getDisplayNearestPoint(cursor).workArea
-      const x = Math.round(clampNum(cursor.x - dragState.offsetX, wa.x, wa.x + wa.width - bounds.width))
-      const y = Math.round(clampNum(cursor.y - dragState.offsetY, wa.y, wa.y + wa.height - bounds.height))
-      petWin.setPosition(x, y)
-      dragState.lastPos = { x, y }
-    }, 16)
-    return { ok: true }
   })
 
-  ipcMain.handle('drag:end', () => {
-    if (dragTimer) { clearInterval(dragTimer); dragTimer = null }
-    let x = 0
-    let y = 0
-    if (dragState && dragState.lastPos) {
-      x = dragState.lastPos.x
-      y = dragState.lastPos.y
-    } else if (petWin && !petWin.isDestroyed()) {
-      const p = petWin.getPosition()
-      x = p[0]
-      y = p[1]
-    }
-    dragState = null
-    return { x, y }
+  ipcMain.handle('image:reset', (e, msg) => {
+    const kind = msg && msg.kind === 'alert' ? 'alert' : 'main'
+    configMod.save(imagePatchFor(kind))
+    broadcast('config:changed', configMod.getEffective())
+    return { ok: true }
   })
 
   // ---------- 透明像素点击穿透 ----------
@@ -452,23 +442,49 @@ async function runSmoke() {
   await new Promise((r) => setTimeout(r, 900))
   await capturer(petWin, 'smoke-pet-2.png')
 
-  // 模拟拖拽：dragStart 后主进程轮询光标移动窗口，dragEnd 返回最终位置
+  // 模拟拖拽（走真实输入管线：mouseDown → 系列 mouseMove → mouseUp），
+  // 渲染进程 pointermove 驱动窗口移动 + 松手吸附。坐标必须保持在窗口内
+  // （sendInputEvent 对窗口外坐标的行为不可控，会导致指针丢失）。
+  const simDrag = async (x1, y1, x2, y2, steps) => {
+    petWin.webContents.sendInputEvent({ type: 'mouseDown', x: x1, y: y1, button: 'left', clickCount: 1 })
+    for (let i = 1; i <= steps; i++) {
+      petWin.webContents.sendInputEvent({
+        type: 'mouseMove',
+        x: Math.round(x1 + ((x2 - x1) * i) / steps),
+        y: Math.round(y1 + ((y2 - y1) * i) / steps),
+        button: 'left',
+        buttons: 1,
+      })
+      await new Promise((r) => setTimeout(r, 25))
+    }
+    petWin.webContents.sendInputEvent({ type: 'mouseUp', x: x2, y: y2, button: 'left', clickCount: 1 })
+    await new Promise((r) => setTimeout(r, 250))
+  }
   try {
+    results.drag = {}
+    const wa = await getWorkAreaForPet()
+    results.drag.workArea = wa
+
+    // ① 常规拖拽：鲸鱼中心 → 窗内上移，验证 1:1 跟手
     const before = petWin.getPosition()
-    await withTimeout(petWin.webContents.executeJavaScript('window.whaleAPI.dragStart(160, 160)', true), 3000, null)
-    await new Promise((r) => setTimeout(r, 500))
-    const end = await withTimeout(petWin.webContents.executeJavaScript('window.whaleAPI.dragEnd()', true), 3000, null)
-    const cursor = screen.getCursorScreenPoint()
-    const wa = screen.getDisplayNearestPoint(cursor).workArea
-    const bounds = petWin.getBounds()
-    const wantX = Math.max(wa.x, Math.min(cursor.x - 160, wa.x + wa.width - bounds.width))
-    const wantY = Math.max(wa.y, Math.min(cursor.y - 160, wa.y + wa.height - bounds.height))
-    results.drag = end ? {
+    await simDrag(260, 260, 160, 100, 8)
+    const c1 = petWin.getPosition()
+    results.drag.basic = {
       before,
-      after: end,
-      expected: { x: Math.round(wantX), y: Math.round(wantY) },
-      ok: end.x !== undefined && Math.abs(end.x - wantX) < 2 && Math.abs(end.y - wantY) < 2,
-    } : { before, FAIL: 'dragStart/dragEnd timeout' }
+      after: { x: c1[0], y: c1[1] },
+      moved: Math.hypot(c1[0] - before[0], c1[1] - before[1]) > 20,
+    }
+
+    // ② 连续向上拖 → 验证能贴到上边缘（用户报告的重点）。
+    // 注：窗口内注入的单次拖拽最多移动 ~260px，从右下角无法单次跨到左边缘四分之一
+    // 区（会被右吸附拉回）；左/右/下边缘与上边缘共用同一套 clamp+snap 代码。
+    for (let i = 0; i < 10; i++) {
+      const p = petWin.getPosition()
+      if (p[1] <= wa.y + 2) break
+      await simDrag(260, 260, 260, 60, 6)
+    }
+    const c3 = petWin.getPosition()
+    results.drag.topEdge = { after: { x: c3[0], y: c3[1] }, reached: Math.abs(c3[1] - wa.y) <= 2 }
   } catch (err) {
     results.drag = 'FAIL: ' + String((err && err.message) || err)
   }

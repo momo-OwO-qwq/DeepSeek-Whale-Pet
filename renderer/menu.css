@@ -1,4 +1,31 @@
-/* 设置窗口样式：白色圆角卡片，风格与原版汉堡菜单一致（#203170 主色） */
+/* 设置窗口样式：白色/深色圆角卡片（htmldata-theme 切换），风格与原版汉堡菜单一致 */
+:root {
+  --wm-card-bg: rgba(255, 255, 255, .97);
+  --wm-fg: #203170;
+  --wm-border: rgba(32, 49, 112, .35);
+  --wm-input-fg: #203170;
+  --wm-input-bg: #fff;
+  --wm-input-accent: rgba(32, 49, 112, .08);
+  --wm-hint: #9fb0d9;
+  --wm-accent: #203170;
+  --wm-accent-hover: #2c4390;
+  --wm-btn-primary-fg: #fff;
+  color-scheme: light;
+}
+html[data-theme="dark"] {
+  --wm-card-bg: rgba(30, 34, 48, .97);
+  --wm-fg: #cdd6f4;
+  --wm-border: rgba(205, 214, 244, .3);
+  --wm-input-fg: #e6e9f5;
+  --wm-input-bg: rgba(255, 255, 255, .07);
+  --wm-input-accent: rgba(255, 255, 255, .14);
+  --wm-hint: #8a93b8;
+  --wm-accent: #89b4fa;
+  --wm-accent-hover: #a4c7ff;
+  --wm-btn-primary-fg: #1e2230;
+  color-scheme: dark;
+}
+
 html, body {
   margin: 0;
   padding: 0;
@@ -7,19 +34,18 @@ html, body {
   user-select: none;
   -webkit-user-select: none;
   font-family: system-ui, "Noto Sans CJK SC", sans-serif;
-  color: #203170;
+  color: var(--wm-fg);
 }
 
 .wm-card {
   position: absolute;
   inset: 8px;
-  background: rgba(255, 255, 255, .96);
-  border: 1px solid rgba(32, 49, 112, .35);
+  background: var(--wm-card-bg);
+  border: 1px solid var(--wm-border);
   border-radius: 12px;
   padding: 12px 14px 10px;
   box-shadow: 0 6px 18px rgba(0, 0, 0, .18);
   overflow-y: auto;
-  color-scheme: light;
   box-sizing: border-box;
 }
 
@@ -30,12 +56,13 @@ html, body {
   font-size: 14px;
   font-weight: 700;
   margin-bottom: 6px;
+  color: var(--wm-fg);
 }
 
 .wm-x {
   border: none;
   background: transparent;
-  color: #203170;
+  color: var(--wm-fg);
   font-size: 18px;
   line-height: 1;
   cursor: pointer;
@@ -50,73 +77,75 @@ html, body {
   margin: 7px 0;
   font-size: 12px;
   white-space: nowrap;
+  color: var(--wm-fg);
 }
 .wm-row select,
 .wm-row input[type="password"],
+.wm-row input[type="text"],
 .wm-row input[type="number"] {
   flex: 1;
   min-width: 0;
-  border: 1px solid rgba(32, 49, 112, .4);
+  border: 1px solid var(--wm-border);
   border-radius: 6px;
   padding: 3px 6px;
   font-size: 12px;
-  color: #203170;
-  background: #fff;
+  color: var(--wm-input-fg);
+  background: var(--wm-input-bg);
   box-sizing: border-box;
 }
 .wm-row input[type="number"] { flex: 0 0 64px; width: 64px; }
-.wm-row select { padding: 3px 2px; background: rgba(32, 49, 112, .08); cursor: pointer; }
+.wm-row select { padding: 3px 2px; background: var(--wm-input-accent); cursor: pointer; }
 
-.wm-label { flex: 0 0 62px; color: #203170; }
+.wm-label { flex: 0 0 62px; }
 
 .wm-key .wm-fill { flex: 1; min-width: 0; }
 .wm-inline { display: flex; gap: 4px; }
 .wm-inline input { flex: 1; min-width: 0; }
 .wm-mini {
   flex: 0 0 auto;
-  border: 1px solid rgba(32, 49, 112, .4);
+  border: 1px solid var(--wm-border);
   border-radius: 6px;
-  background: rgba(32, 49, 112, .08);
-  color: #203170;
+  background: var(--wm-input-accent);
+  color: var(--wm-fg);
   cursor: pointer;
   padding: 2px 6px;
   font-size: 12px;
 }
-.wm-mini:hover { background: rgba(32, 49, 112, .16); }
+.wm-mini:hover { background: var(--wm-input-accent); filter: brightness(1.15); }
 .wm-note {
   margin-top: 3px;
   font-size: 10.5px;
-  color: #9fb0d9;
+  color: var(--wm-hint);
   white-space: normal;
   line-height: 1.3;
+  word-break: break-all;
 }
 .wm-note.wm-note-ok { color: #2fa24c; }
 .wm-note.wm-note-warn { color: #d98324; }
 
-.wm-range { flex: 1; min-width: 0; accent-color: #203170; }
-.wm-val { width: 40px; text-align: right; color: #203170; font-size: 12px; }
-.wm-check { width: 16px; height: 16px; accent-color: #203170; cursor: pointer; flex: 0 0 auto; }
-.wm-unit { color: #9fb0d9; }
+.wm-range { flex: 1; min-width: 0; accent-color: var(--wm-accent); }
+.wm-val { width: 40px; text-align: right; font-size: 12px; }
+.wm-check { width: 16px; height: 16px; accent-color: var(--wm-accent); cursor: pointer; flex: 0 0 auto; }
+.wm-unit { color: var(--wm-hint); }
 
 .wm-actions { margin-top: 4px; }
 .wm-btn {
   flex: 1;
-  border: 1px solid rgba(32, 49, 112, .4);
+  border: 1px solid var(--wm-border);
   border-radius: 8px;
-  background: rgba(32, 49, 112, .08);
-  color: #203170;
+  background: var(--wm-input-accent);
+  color: var(--wm-fg);
   font-size: 12px;
   padding: 6px 0;
   cursor: pointer;
 }
-.wm-btn:hover { background: rgba(32, 49, 112, .16); }
-.wm-btn-primary { background: #203170; color: #fff; }
-.wm-btn-primary:hover { background: #2c4390; }
+.wm-btn:hover { filter: brightness(1.12); }
+.wm-btn-primary { background: var(--wm-accent); color: var(--wm-btn-primary-fg); }
 
 .wm-foot {
   margin-top: 6px;
   font-size: 10.5px;
-  color: #9fb0d9;
+  color: var(--wm-hint);
   line-height: 1.4;
   white-space: normal;
 }

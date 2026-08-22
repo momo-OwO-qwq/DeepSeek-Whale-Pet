@@ -15,9 +15,9 @@ contextBridge.exposeInMainWorld('whaleAPI', {
   getWorkArea: () => ipcRenderer.invoke('window:get-workarea'),
   resizeWindow: (w, h) => ipcRenderer.send('window:resize', { w, h }),
   setWindowPos: (x, y) => ipcRenderer.send('window:set-pos', { x, y }),
-  // 拖拽：主进程轮询光标移动窗口，dragEnd 返回最终窗口位置
-  dragStart: (offsetX, offsetY) => ipcRenderer.invoke('drag:start', { offsetX, offsetY }),
-  dragEnd: () => ipcRenderer.invoke('drag:end'),
+  // 主图 / 预警图上传（复制到配置目录） + 恢复默认
+  pickImage: (kind) => ipcRenderer.invoke('image:pick', { kind }),
+  resetImage: (kind) => ipcRenderer.invoke('image:reset', { kind }),
   // 设置窗口
   openMenu: () => ipcRenderer.send('menu:open'),
   closeMenu: () => ipcRenderer.send('menu:close'),
