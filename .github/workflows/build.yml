@@ -1,82 +1,95 @@
-name: Build packages (all platforms)
+name: Build Linux packages
 
 on:
   push:
     tags:
       - 'v*'
+      - 'ver-*'
   workflow_dispatch:
 
+env:
+  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
 jobs:
-  # ---------- Linux：x64 + arm64 ----------
   linux:
-    name: Linux (x64 / arm64)
+    name: Linux (x64 / arm64 / armv7l)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with: { node-version: '22', cache: npm }
       - run: npm ci
-      - name: Build x64 (AppImage + deb)
-        run: npx electron-builder --linux --x64
-      - name: Build arm64 (AppImage + deb)
-        run: npx electron-builder --linux --arm64
+      # --publish never：跳过 electron-builder 对 GitHub 的发布交互（防止 403）
+      - name: Build AppImage + deb + rpm + tar.gz (x64 / arm64 / armv7l)
+        run: npx electron-builder --linux --x64 --arm64 --armv7l --publish never
       - uses: actions/upload-artifact@v4
         with:
           name: linux-packages
           path: |
             dist/*.AppImage
             dist/*.deb
+            dist/*.rpm
+            dist/*.tar.gz
 
-  # ---------- macOS：Universal (x64 + arm64) ----------
-  mac:
-    name: macOS (Universal)
-    runs-on: macos-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with: { node-version: '22', cache: npm }
-      - run: npm ci
-      - name: Build macOS (Universal dmg + zip)
-        run: npx electron-builder --mac --universal
-      - uses: actions/upload-artifact@v4
-        with:
-          name: macos-packages
-          path: |
-            dist/*.dmg
-            dist/*.zip
-
-  # ---------- Windows：x64 ----------
-  win:
-    name: Windows (x64)
-    runs-on: windows-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with: { node-version: '22', cache: npm }
-      - run: npm ci
-      - name: Build Windows (nsis + zip)
-        run: npx electron-builder --win --x64
-      - uses: actions/upload-artifact@v4
-        with:
-          name: windows-packages
-          path: |
-            dist/*.exe
-            dist/*.zip
-
-  # ---------- 合并发布（标签推送时） ----------
+  # ------- 发布（ver- 标签：名称=产品名 版本；正文=变更清单 + 校验表） -------
   release:
-    name: Attach to GitHub Release
-    needs: [linux, mac, win]
+    name: Publish GitHub Release
+    needs: [linux]
     if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
-      - name: Download all artifacts
+        with:
+          fetch-depth: 0
+      - name: Download artifacts
         uses: actions/download-artifact@v4
         with:
           path: artifacts
           merge-multiple: true
+      - name: Build release body (Commits + Checksums)
+        shell: bash
+        run: |
+          VERSION="${GITHUB_REF_NAME#ver-}"; VERSION="${VERSION#v}"
+          PRODUCT=$(node -p "require('./package.json').productName")
+          RELEASE_NAME="${PRODUCT} ${VERSION}"
+
+          git fetch --tags --quiet
+          PREV=$(git tag --list 'v*' 'ver-*' | grep -v "^${GITHUB_REF_NAME}$" | sort -V | tail -1 || true)
+          if [ -n "$PREV" ]; then
+            COMMITS=$(git log --oneline --no-decorate "$PREV"..HEAD 2>/dev/null)
+          else
+            COMMITS=""
+          fi
+          if [ -z "$COMMITS" ]; then COMMITS=$(git log --oneline --no-decorate -20); fi
+
+          {
+            echo "### 📜 Commits:"
+            echo
+            echo "$COMMITS" | sed 's/^/- /'
+            echo
+            echo "### 🔒 Checksums"
+            echo
+            echo "| artifact | MD5 | SHA256 |"
+            echo "| --- | --- | --- |"
+            for f in artifacts/*; do
+              [ -f "$f" ] || continue
+              name=$(basename "$f")
+              md5=$(md5sum "$f" | cut -d' ' -f1)
+              sha=$(sha256sum "$f" | cut -d' ' -f1)
+              echo "| $name | $md5 | $sha |"
+            done
+            echo
+            echo "> [!WARNING]"
+            echo "> 桌宠为本地应用，请从可信渠道下载并核对上方校验值。"
+          } > body.md
+          echo "RELEASE_NAME=$RELEASE_NAME" >> "$GITHUB_ENV"
+          sed -n '1,20p' body.md
       - name: Publish to GitHub Release
         uses: softprops/action-gh-release@v2
         with:
+          name: ${{ env.RELEASE_NAME }}
+          body_path: body.md
           files: artifacts/*
+          generate_release_notes: false

@@ -253,7 +253,7 @@ function applyAutostart(enabled) {
   try {
     if (process.platform === 'linux') {
       const dir = path.join(os.homedir(), '.config', 'autostart')
-      const file = path.join(dir, 'deepseek-balance-whale-pet.desktop')
+      const file = path.join(dir, 'deepseek-whale-linux.desktop')
       if (enabled) {
         fs.mkdirSync(dir, { recursive: true, mode: 0o755 })
         const exec = app.isPackaged
@@ -262,7 +262,7 @@ function applyAutostart(enabled) {
         fs.writeFileSync(file, [
           '[Desktop Entry]',
           'Type=Application',
-          'Name=DeepSeek Balance Whale Pet',
+          'Name=DeepSeek Whale Linux',
           'Comment=DeepSeek 余额小鲸鱼桌宠',
           'Exec=' + exec,
           'Terminal=false',

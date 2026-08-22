@@ -26,8 +26,9 @@ npm run dist:deb         # deb：Debian/Ubuntu 安装包
 
 ### 安装/运行产物
 
-- **AppImage**：`chmod +x "DeepSeek Balance Whale Pet-1.0.0.AppImage" && ./"DeepSeek Balance Whale Pet-1.0.0.AppImage"`（免安装，直接运行）。
-- **deb**：`sudo dpkg -i "DeepSeek Balance Whale Pet-1.0.0.deb"`（或 `sudo apt install ./xxx.deb`），安装后在应用菜单搜索「DeepSeek」启动。
+- **AppImage**：`chmod +x "DeepSeek.Whale.Linux-1.2.2-x86_64.AppImage" && ./"DeepSeek.Whale.Linux-1.2.2-x86_64.AppImage"`（免安装，直接运行）。
+- **deb**：`sudo dpkg -i "DeepSeek.Whale.Linux-1.2.2-amd64.deb"`（或 `sudo apt install ./xxx.deb`）；**rpm**：`sudo rpm -i "…….rpm"`；安装后在应用菜单搜索「DeepSeek 余额小鲸鱼」启动。
+- **tar.gz**：解压后运行其中的可执行文件。
 
 ## 二、用 GitHub Actions 自动打包并发布
 

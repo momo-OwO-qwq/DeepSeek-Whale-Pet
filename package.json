@@ -1,14 +1,18 @@
 {
-  "name": "deepseek-balance-whale-pet",
-  "productName": "DeepSeek Balance Whale Pet",
-  "version": "1.0.0",
+  "name": "deepseek-whale-linux",
+  "productName": "DeepSeek Whale Linux",
+  "version": "1.2.2",
   "description": "Linux 桌面小鲸鱼桌宠：DeepSeek 余额监控、今日已用双模式记账、峰谷定价、随机台词、音效与汉堡菜单（脱离 DSH / 浏览器独立运行）",
   "main": "main.js",
   "author": {
-    "name": "DeepSeek-Balance-Whale-Widget-Linux",
-    "email": "whale-pet@example.com"
+    "name": "momo-OwO-qwq",
+    "email": "momo_OwO@hotmail.com"
   },
-  "homepage": "https://github.com/DeepSeek-Balance-Whale-Widget-Linux",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/momo-OwO-qwq/DeepSeek-Whale-Linux.git"
+  },
+  "homepage": "https://github.com/momo-OwO-qwq/DeepSeek-Whale-Linux",
   "license": "MIT",
   "scripts": {
     "start": "electron .",
@@ -26,8 +30,8 @@
     "electron-builder": "^25.1.8"
   },
   "build": {
-    "appId": "dev.whalepet.deepseek-balance",
-    "productName": "DeepSeek Balance Whale Pet",
+    "appId": "dev.whalepet.deepseek-whale-linux",
+    "productName": "DeepSeek Whale Linux",
     "files": [
       "main.js",
       "preload.js",
@@ -36,31 +40,19 @@
       "assets/**",
       "package.json"
     ],
-    "mac": {
-      "target": [
-        "dmg",
-        "zip"
-      ],
-      "icon": "assets/DSniang1.png",
-      "category": "public.app-category.utilities"
-    },
-    "win": {
-      "target": [
-        "nsis",
-        "zip"
-      ],
-      "icon": "assets/DSniang1.png"
-    },
     "linux": {
       "target": [
         "AppImage",
-        "deb"
+        "deb",
+        "rpm",
+        "tar.gz"
       ],
       "icon": "assets/DSniang1.png",
       "category": "Utility",
       "synopsis": "DeepSeek 余额小鲸鱼桌宠",
       "description": "DeepSeek 余额小鲸鱼桌宠：余额监控、今日已用记账、峰谷定价、随机台词与音效。"
     },
+    "publish": null,
     "artifactName": "${productName}-${version}-${arch}.${ext}"
   }
 }
