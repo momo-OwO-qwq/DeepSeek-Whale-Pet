@@ -325,6 +325,7 @@
     bubbleRandomActive = false
     restoreBubbleLines()
     bubbleBox.classList.add('wp-bubble-open')
+    reportShape()
     bubbleTimer = setTimeout(hideBubble, BUBBLE_MS)
   }
 
@@ -340,6 +341,7 @@
     bubbleRandomLines = null
     bubbleShown = false
     bubbleBox.classList.remove('wp-bubble-open')
+    reportShape()
     gifFadeTimer = setTimeout(function () {
       gifFadeTimer = null
       gifEl.style.display = 'none'
@@ -533,6 +535,32 @@
     state.posY = y
   }
 
+  // ---------- 透明点击穿透：窗口裁剪为鲸鱼/气泡/按钮区域 ----------
+  // 用布局盒（offset*，不含动画 transform）计算窗口内矩形，其余区域点击
+  // 不落在窗口上 → 自然穿透到下方桌面/窗口。换图、开合气泡、缩放后重报。
+  function reportShape() {
+    try {
+      var pad = 10
+      var W = state.winW, H = state.winH
+      var rects = []
+      var p = function (x, y, w, h) {
+        // 钳制到窗口范围内（shape 仅接受窗口内部区域）
+        var x0 = Math.max(0, x), y0 = Math.max(0, y)
+        var x1 = Math.min(W, x + w), y1 = Math.min(H, y + h)
+        if (x1 > x0 && y1 > y0) rects.push({ x: x0, y: y0, w: x1 - x0, h: y1 - y0 })
+      }
+      var w = img.offsetWidth
+      if (w > 0) p(img.offsetLeft - pad, img.offsetTop - pad, w + pad * 2, img.offsetHeight + pad * 2)
+      if (bubbleShown) {
+        var b = bubbleBox.offsetWidth
+        if (b > 0) p(bubbleBox.offsetLeft - pad, bubbleBox.offsetTop - pad, b + pad * 2, bubbleBox.offsetHeight + pad * 2)
+      }
+      var m = menuBtn.offsetWidth
+      if (m > 0) p(menuBtn.offsetLeft - 4, menuBtn.offsetTop - 4, m + 8, menuBtn.offsetHeight + 8)
+      api.setShape(rects)
+    } catch (err) {}
+  }
+
   async function setScale(v) {
     var next = Math.round(clamp(Number(v), MIN_SCALE, MAX_SCALE) * 10) / 10
     if (next === state.scale) return
@@ -555,6 +583,7 @@
     await api.resizeWindow(newW, newH)
     await api.setWindowPos(x, y)
     api.setConfig({ scale: next, posX: x, posY: y })
+    reportShape()
   }
 
   // ------------------------------------------------------------- 命中测试
@@ -674,12 +703,12 @@
 
   async function finishDrag() {
     var end = await api.dragEnd() // {x, y} 主进程记录的最终窗口位置
-    var wa = await api.getWorkArea()
-    // 无吸附/无翻转：自由定位，仅钳制在桌面内（可贴到任意边缘）
+    var bd = await api.getDisplayBounds()
+    // 无吸附/无翻转：自由定位，仅钳制在显示器物理边界内（可贴到任意桌面边缘）
     var x = Math.round(end.x), y = Math.round(end.y)
     var w = state.winW, h = state.winH
-    x = clamp(x, wa.x, wa.x + wa.width - w)
-    y = clamp(y, wa.y, wa.y + wa.height - h)
+    x = clamp(x, bd.x, bd.x + bd.width - w)
+    y = clamp(y, bd.y, bd.y + bd.height - h)
     advancePos(x, y)
     await api.setWindowPos(x, y)
     api.setConfig({ posX: x, posY: y })
@@ -849,6 +878,7 @@
     await initPosition()
     await applyConfig(c, true)
     setupHitTest()
+    reportShape() // 按鲸鱼位置裁剪窗口 → 透明区域点击穿透
     api.getCustom().then(applyCustom).catch(function () {})
     refresh(false)
     refreshTimer = setInterval(function () { refresh(false) }, refreshIntervalMs)

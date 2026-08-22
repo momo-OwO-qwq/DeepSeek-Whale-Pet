@@ -70,10 +70,7 @@ petWin.setAlwaysOnTop(true, 'screen-saver')
 petWin.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
 ```
 
-- **首版实现**尝试了 OS 级点击穿透：渲染进程做画布 alpha 命中测试（610×610 与素材对齐，左吸附镜像坐标），命中后经 IPC 让主进程 `setIgnoreMouseEvents(false)`，未命中 `setIgnoreMouseEvents(true, {forward:true})`。
-- **实测失败**（用户报告「点击小鲸鱼没有反应」+ xdotool 真实点击复现）：在该 Linux/XWayland + Electron 34 环境下，`forward` 事件转发**不会**触发（窗口进入 ignore 后永远收不到 mousemove，无法自我唤醒）；且 **`screen.getCursorScreenPoint()` 是事件缓存的**——光标在受忽略/非当前窗口上时返回过期坐标（xdotool 移动指针后 `xdotool getmouselocation` 已变，而 App 读到的坐标不变），因此「主进程轮询光标」的兜底方案同样失效。两条通道全部被验证为不可靠（用独立探针程序逐项证明）。
-- **最终方案（与参考实现 deepseek-whale-pet 一致）**：**完全不做 OS 级穿透**——窗口始终接收鼠标事件；渲染进程用 `isWhaleHit` 画布 alpha 判定，鲸鱼本体（及气泡/菜单按钮）之外的点按直接忽略。代价是窗口矩形内的透明区域会吃掉点击，换来的是**真实鼠标点击 100% 可靠**，并用 xdotool 真实点击自动化验证通过（修复前 BUBBLE=false，修复后 BUBBLE=true 连续 14 次探针采样）。
-- `focusable: false` 也被移除：与参考实现一致的最小窗口属性集，避免个别 WM 下的输入怪癖。
+- **透明点击穿透（v1.6 起用 window.setShape）**：初版曾尝试 `setIgnoreMouseEvents(forward)` 与主进程光标轮询，Linux/XWayland 下事件转发不可靠、光标为事件缓存，均致真实点击穿透/拖不动的死锁（详见 §4.2 返工记录）。现在改为：渲染进程按**鲸鱼盒 + 气泡（展开时）+ 汉堡按钮**的布局盒（offset*，不含动画 transform）计算窗口内矩形，经 `pet:shape` 让主进程 `petWin.setShape(rects)` 裁剪窗口——**窗口只在鲸鱼/气泡/按钮处存在，其余透明区域的自然穿透到下方桌面/窗口**。换图、开合气泡、缩放后重报（矩形钳制在窗口范围内）。
 
 ### 4.2 拖拽（v1.4：主进程双通道引擎 + 自由定位，真实鼠标可拖、无抽搐）
 

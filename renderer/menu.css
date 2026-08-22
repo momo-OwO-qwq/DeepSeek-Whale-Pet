@@ -92,9 +92,9 @@ html, body {
 .wm-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  column-gap: 10px;
-  row-gap: 4px;
-  align-items: center;
+  column-gap: 12px;
+  row-gap: 2px;
+  align-items: start;
 }
 .wm-grid .wm-row { margin: 3px 0; }
 .wm-span { grid-column: 1 / -1; }
@@ -102,17 +102,18 @@ html, body {
 .wm-row {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 6px;
   margin: 8px 0;
-  white-space: nowrap;
+  white-space: normal;
   color: var(--wm-fg);
 }
-/* 表单控件：显式 appearance:none + 实色背景（修复暗色模式下 select 白字白底） */
+/* 一般表单控件：显式 appearance:none + 实色背景（修复暗色模式 select 白字白底） */
 .wm-row select,
 .wm-row input[type="password"],
 .wm-row input[type="text"],
 .wm-row input[type="number"] {
-  flex: 1;
+  flex: 1 1 120px;
   min-width: 0;
   border: 1px solid var(--wm-border);
   border-radius: 6px;
@@ -139,8 +140,8 @@ html, body {
 .wm-row input::placeholder { color: var(--wm-hint); opacity: .8; }
 .wm-row input[type="number"] { flex: 0 0 56px; width: 56px; }
 
-.wm-grid .wm-label { flex: 0 0 auto; min-width: 74px; }
-.wm-label { flex: 0 0 84px; }
+.wm-grid .wm-label { flex: 0 0 auto; min-width: 60px; white-space: normal; }
+.wm-label { flex: 0 0 auto; min-width: 78px; white-space: normal; }
 
 .wm-fill { flex: 1; min-width: 0; }
 .wm-inline { display: flex; gap: 4px; }

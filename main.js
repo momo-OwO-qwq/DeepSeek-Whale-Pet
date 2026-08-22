@@ -15,8 +15,8 @@ const linesMod = require('./lib/lines')
 
 const IS_SMOKE = process.argv.includes('--smoke-test')
 const BASE_PX = 320
-const MENU_W = 480
-const MENU_H = 660
+const MENU_W = 520
+const MENU_H = 700
 const LOW_NOTIFY_THROTTLE_MS = 30 * 60 * 1000
 
 // ---- Wayland：强制走 XWayland，否则 setPosition / 拖拽不可用 --------------
@@ -329,6 +329,22 @@ function checkLowBalance(payload) {
 // ================================ IPC =====================================
 function hasOwn(o, k) { return Object.prototype.hasOwnProperty.call(o || {}, k) }
 
+function sanitizeRects(rects) {
+  if (!Array.isArray(rects)) return []
+  const out = []
+  for (const r of rects) {
+    if (!r || typeof r !== 'object') continue
+    const x = Number(r.x)
+    const y = Number(r.y)
+    const w = Number(r.w)
+    const h = Number(r.h)
+    if (isFinite(x) && isFinite(y) && isFinite(w) && isFinite(h) && w > 0 && h > 0) {
+      out.push({ x, y, w, h })
+    }
+  }
+  return out
+}
+
 async function getWorkAreaForPet() {
   const b = (petWin && !petWin.isDestroyed()) ? petWin.getBounds() : null
   const wa = b ? screen.getDisplayMatching(b).workArea : screen.getPrimaryDisplay().workArea
@@ -365,6 +381,26 @@ function registerIpc() {
 
   // ---------- 窗口 ----------
   ipcMain.handle('window:get-workarea', () => getWorkAreaForPet())
+
+  // 显示器完整包围盒（不含面板扣除）——拖拽钳制用，让鲸鱼可贴到桌面物理边缘
+  ipcMain.handle('window:get-display-bounds', (e, msg) => {
+    try {
+      const b = (petWin && !petWin.isDestroyed()) ? petWin.getBounds() : null
+      const d = b ? screen.getDisplayMatching(b) : screen.getPrimaryDisplay()
+      return { x: d.bounds.x, y: d.bounds.y, width: d.bounds.width, height: d.bounds.height }
+    } catch (err) {
+      const d = screen.getPrimaryDisplay()
+      return { x: d.bounds.x, y: d.bounds.y, width: d.bounds.width, height: d.bounds.height }
+    }
+  })
+
+  // ---------- 透明像素点击穿透（window.setShape 只保留鲸鱼/气泡/按钮区域）----------
+  ipcMain.on('pet:shape', (e, msg) => {
+    if (!petWin || petWin.isDestroyed()) return
+    const rects = sanitizeRects(msg && msg.rects)
+    if (process.env.WHALE_PET_TRACE === '1') console.log('[trace] shape', JSON.stringify(rects))
+    try { petWin.setShape(rects) } catch (err) { /* 个别环境不支持 shape，忽略 */ }
+  })
 
   ipcMain.on('window:resize', (e, msg) => {
     if (!petWin || petWin.isDestroyed()) return
@@ -411,9 +447,9 @@ function registerIpc() {
       if (IS_SMOKE) { dragState.cursorLock = false; return } // 冒烟测试无真实光标运动
       dragState.lastCursor = cursor
       dragState.cursorLock = true
-      const wa = screen.getDisplayNearestPoint(cursor).workArea
-      const nx = Math.round(Math.min(Math.max(cursor.x - dragState.offsetX, wa.x), Math.max(wa.x, wa.x + wa.width - b.width)))
-      const ny = Math.round(Math.min(Math.max(cursor.y - dragState.offsetY, wa.y), Math.max(wa.y, wa.y + wa.height - b.height)))
+      const bd = screen.getDisplayNearestPoint(cursor).bounds // 物理边缘（非 workArea）
+      const nx = Math.round(Math.min(Math.max(cursor.x - dragState.offsetX, bd.x), Math.max(bd.x, bd.x + bd.width - b.width)))
+      const ny = Math.round(Math.min(Math.max(cursor.y - dragState.offsetY, bd.y), Math.max(bd.y, bd.y + bd.height - b.height)))
       if (nx !== b.x || ny !== b.y) petWin.setPosition(nx, ny)
       dragState.lastPos = { x: nx, y: ny }
       dragState.lastAppliedDx = nx - b.x
@@ -439,9 +475,9 @@ function registerIpc() {
     if (Math.abs(cx - expectX) > 8 || Math.abs(cy - expectY) > 8) return
     dragState.lastClientX = cx
     dragState.lastClientY = cy
-    const wa = screen.getDisplayNearestPoint({ x: b.x + b.width / 2, y: b.y + b.height / 2 }).workArea
-    const nx = Math.round(Math.min(Math.max(b.x + dx, wa.x), Math.max(wa.x, wa.x + wa.width - b.width)))
-    const ny = Math.round(Math.min(Math.max(b.y + dy, wa.y), Math.max(wa.y, wa.y + wa.height - b.height)))
+    const bd = screen.getDisplayNearestPoint({ x: b.x + b.width / 2, y: b.y + b.height / 2 }).bounds
+    const nx = Math.round(Math.min(Math.max(b.x + dx, bd.x), Math.max(bd.x, bd.x + bd.width - b.width)))
+    const ny = Math.round(Math.min(Math.max(b.y + dy, bd.y), Math.max(bd.y, bd.y + bd.height - b.height)))
     if (nx !== b.x || ny !== b.y) petWin.setPosition(nx, ny)
     dragState.lastPos = { x: nx, y: ny }
     dragState.lastAppliedDx = nx - b.x
@@ -677,22 +713,15 @@ async function runSmoke() {
       exact: Math.abs(c1[0] - (before[0] - 96)) <= 2 && Math.abs(c1[1] - (before[1] - 160)) <= 2,
     }
 
-    // ② 连续向上拖 → 验证能贴到上边缘（用户报告的重点）。
-    // 注：窗口内单次拖拽移动有限，无法单次跨到左边缘四分之一区（会被右吸附拉回）；
-    // 左/右/下边缘与上边缘共用同一套 clamp+snap 代码。
-    for (let i = 0; i < 12; i++) {
-      const p = petWin.getPosition()
-      if (p[1] <= wa.y + 2) break
-      await dispatchPtr(ptrDown)
-      for (let j = 0; j < 6; j++) {
-        await dispatchPtr(ptrMove(0, -200 / 6, 260, 260 - 200 / 6))
-        await new Promise((r) => setTimeout(r, 20))
-      }
-      await dispatchPtr(ptrUp)
-      await new Promise((r) => setTimeout(r, 100))
-    }
+    // ② 验证拖到显示器物理边缘（可越过面板栏）：直接驱动引擎，一次大幅上移会
+    // 被 clamp 到 bounds 顶部。真实拖拽在边缘部分会用递减的 client 坐标通过守卫
+    // （合成事件在钳制段无法模拟该轨迹，故此处用引擎直连验证钳制落点）。
+    const bd = screen.getDisplayMatching(petWin.getBounds()).bounds
+    await withTimeout(petWin.webContents.executeJavaScript(
+      '(function(){window.whaleAPI.dragStart(260,260);window.whaleAPI.dragDelta(0,-4000,260,260-4000);return window.whaleAPI.dragEnd()})()', true), 3000, null)
+    await new Promise((r) => setTimeout(r, 500))
     const c3 = petWin.getPosition()
-    results.drag.topEdge = { after: { x: c3[0], y: c3[1] }, reached: Math.abs(c3[1] - wa.y) <= 2 }
+    results.drag.topEdge = { after: { x: c3[0], y: c3[1] }, reached: Math.abs(c3[1] - bd.y) <= 2 }
 
     // ③ 修改大小（用户曾报告改大小后难以移动——根因是贴边吸附在放大后
     // 把窗口拽回边缘，本次已取消吸附）。验证：缩放生效、鲸鱼右下角锚定、
@@ -702,10 +731,11 @@ async function runSmoke() {
     await withTimeout(petWin.webContents.executeJavaScript('window.whaleAPI.setConfig({scale: 1.5})', true), 3000, null)
     await new Promise((r) => setTimeout(r, 900))
     const sb = petWin.getBounds()
+    const sbd = screen.getDisplayMatching(screen.getDisplayNearestPoint({ x: sb.x + sb.width / 2, y: sb.y + sb.height / 2 }).bounds).bounds
     results.drag.scaleDrag = {
       resized: sb.width === 480 && sb.height === 480,
       cornerAnchored: Math.abs((sb.x + sb.width) - (posBeforeScale[0] + 320)) <= 3 && Math.abs((sb.y + sb.height) - (posBeforeScale[1] + 320)) <= 3,
-      inScreen: sb.x >= wa.x && sb.y >= wa.y && sb.x + sb.width <= wa.x + wa.width && sb.y + sb.height <= wa.y + wa.height,
+      inScreen: sb.x >= sbd.x && sb.y >= sbd.y && sb.x + sb.width <= sbd.x + sbd.width && sb.y + sb.height <= sbd.y + sbd.height,
     }
   } catch (err) {
     results.drag = 'FAIL: ' + String((err && err.message) || err)

@@ -13,8 +13,11 @@ contextBridge.exposeInMainWorld('whaleAPI', {
   getBalance: () => ipcRenderer.invoke('balance:get'),
   // 窗口
   getWorkArea: () => ipcRenderer.invoke('window:get-workarea'),
+  getDisplayBounds: () => ipcRenderer.invoke('window:get-display-bounds'),
   resizeWindow: (w, h) => ipcRenderer.send('window:resize', { w, h }),
   setWindowPos: (x, y) => ipcRenderer.send('window:set-pos', { x, y }),
+  // 透明点击穿透：把窗口裁剪为 鲸鱼/气泡/按钮 区域，其余部分点击直接落到桌面
+  setShape: (rects) => ipcRenderer.send('pet:shape', { rects }),
   // 拖拽：渲染进程上报原始位移增量（dragDelta），主进程双通道引擎移动窗口；
   // dragEnd 返回最终窗口位置（供吸附/保存）
   dragStart: (offsetX, offsetY) => ipcRenderer.invoke('drag:start', { offsetX, offsetY }),
