@@ -1,0 +1,195 @@
+/* ============================================================================
+ * 小鲸鱼桌宠 —— 渲染样式（移植自 DSH 原版 WIDGET_JS 内嵌 CSS，按需增删）
+ * 几何参数（与原版一致）：
+ *   - 鲸鱼本体 assets/DSniang1.png，透明 cut-out，位于容器右下角 59.45%
+ *   - 气泡 SVG viewBox 0 0 1026 700；椭圆 (454,247) rx373 ry232；描边 #203170 宽 18
+ *   - --wp-u = base/1026，与图片、文字、动图全部联动
+ * ========================================================================== */
+html, body {
+  margin: 0;
+  padding: 0;
+  background: transparent;
+  overflow: hidden;
+  user-select: none;
+  -webkit-user-select: none;
+  cursor: default;
+}
+
+.wp-root {
+  position: fixed;
+  left: 0;
+  top: 0;
+  --wp-scale: 1;
+  --wp-base: 320px;
+  --wp-u: calc(var(--wp-base) / 1026);
+  width: var(--wp-base);
+  height: var(--wp-base);
+  pointer-events: none;
+  z-index: 9999;
+  transform: none;
+  transition: transform .3s ease;
+}
+.wp-root.wp-left { transform: scaleX(-1); }
+.wp-root.wp-dragging { cursor: grabbing; transition: none; }
+
+/* 呼吸动画层：静止时鲸鱼轻微缩放（0.98~1.02，周期 2s） */
+.wp-breath {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 100%;
+  height: 100%;
+  animation: wp-breathe 2s ease-in-out infinite;
+}
+.wp-root.wp-dragging .wp-breath { animation-play-state: paused; }
+@keyframes wp-breathe {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.02); }
+}
+
+/* 按压 Q 弹：transform-origin 50% 100%，带过冲回弹 */
+.wp-body {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 100%;
+  height: 100%;
+  transform-origin: 50% 100%;
+  transition: transform .22s cubic-bezier(.34, 1.56, .64, 1), opacity .4s ease;
+}
+.wp-root.wp-dragging .wp-body { transition: transform .22s cubic-bezier(.34, 1.56, .64, 1); }
+/* 闲置半透明（鼠标离开 3s 后渐隐到 0.6） */
+.wp-root.wp-idle .wp-body { opacity: .6; }
+
+.wp-img {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 59.45%;
+  height: 59.45%;
+  display: block;
+  pointer-events: none;
+  -webkit-user-drag: none;
+  user-select: none;
+}
+
+/* 情绪表情覆盖层：跟随余额/状态切换 */
+.wp-mood {
+  position: absolute;
+  right: 6%;
+  bottom: 36.5%;
+  font-size: calc(var(--wp-u) * 72);
+  line-height: 1;
+  opacity: 0;
+  transform: scale(.6);
+  transition: opacity .2s ease, transform .25s cubic-bezier(.34, 1.56, .64, 1);
+  pointer-events: none;
+  z-index: 2;
+}
+.wp-mood.wp-mood-show { opacity: 1; transform: scale(1); }
+
+/* ---------- 气泡 ---------- */
+.wp-bubble {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 100%;
+  aspect-ratio: 1026 / 700;
+  pointer-events: none;
+  z-index: 1;
+}
+.wp-bubble svg { display: block; width: 100%; height: 100%; pointer-events: none; }
+.wp-bubble svg path, .wp-bubble svg ellipse { pointer-events: none; cursor: pointer; }
+.wp-bubble.wp-bubble-open svg path, .wp-bubble.wp-bubble-open svg ellipse { pointer-events: visiblePainted; }
+
+.wp-bubble .wp-bshape,
+.wp-bubble .wp-b1,
+.wp-bubble .wp-b2 {
+  opacity: 0;
+  transform: scale(.7);
+  transform-box: fill-box;
+  transform-origin: 50% 50%;
+  transition: opacity .2s ease, transform .2s ease;
+}
+.wp-bubble.wp-bubble-open .wp-bshape,
+.wp-bubble.wp-bubble-open .wp-b1,
+.wp-bubble.wp-bubble-open .wp-b2 { opacity: 1; transform: none; }
+.wp-bubble.wp-bubble-open .wp-b2 { transition-delay: 0s; }
+.wp-bubble.wp-bubble-open .wp-b1 { transition-delay: .13s; }
+.wp-bubble.wp-bubble-open .wp-bshape { transition-delay: .26s; }
+.wp-bubble .wp-bshape { transition-delay: .1s; }
+.wp-bubble .wp-b1 { transition-delay: .2s; }
+.wp-bubble .wp-b2 { transition-delay: .3s; }
+
+.wp-gif {
+  position: absolute;
+  left: 44.25%;
+  top: 38%;
+  transform: translate(-50%, -50%);
+  max-width: calc(var(--wp-u) * 560);
+  max-height: calc(var(--wp-u) * 400);
+  display: none;
+  opacity: 0;
+  transition: opacity .2s ease;
+  pointer-events: none;
+  -webkit-user-drag: none;
+  user-select: none;
+  object-fit: contain;
+}
+.wp-root.wp-left .wp-gif { transform: translate(-50%, -50%) scaleX(-1); }
+.wp-bubble.wp-bubble-open .wp-gif { opacity: 1; }
+
+.wp-text {
+  position: absolute;
+  left: 44.25%;
+  top: 38%;
+  transform: translate(-50%, -50%);
+  text-align: center;
+  color: #536ba9;
+  line-height: 1.15;
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity .16s ease;
+}
+.wp-bubble.wp-bubble-open .wp-text { opacity: 1; transition: opacity .16s ease .36s; }
+.wp-root.wp-left .wp-text { transform: translate(-50%, -50%) scaleX(-1); }
+
+.wp-label { font-size: calc(var(--wp-u) * 66); font-weight: 600; letter-spacing: .06em; }
+.wp-amount { font-size: calc(var(--wp-u) * 128); font-weight: 800; line-height: 1.05; }
+.wp-period { font-size: calc(var(--wp-u) * 104); font-weight: 800; line-height: 1.05; }
+.wp-wrap { white-space: normal; max-width: calc(var(--wp-u) * 560); line-height: 1.2; }
+.wp-hint {
+  font-size: calc(var(--wp-u) * 56);
+  color: #9fb0d9;
+  letter-spacing: .02em;
+  margin-top: calc(var(--wp-u) * 9);
+  min-height: calc(var(--wp-u) * 64);
+  line-height: 1.15;
+}
+
+/* 汉堡菜单按钮（悬停鲸鱼时出现；点击打开设置窗口） */
+.wp-menu-btn {
+  position: absolute;
+  top: calc(40.55% + 4px);
+  right: 4px;
+  width: 26px;
+  height: 26px;
+  border: none;
+  border-radius: 6px;
+  background: rgba(32, 49, 112, .85);
+  cursor: pointer;
+  pointer-events: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 0;
+  z-index: 2;
+  opacity: 0;
+  transition: opacity .15s ease;
+}
+.wp-menu-btn.wp-menu-btn-visible { opacity: 1; }
+.wp-menu-btn span { display: block; width: 14px; height: 2px; background: #fff; border-radius: 1px; }
+.wp-menu-btn:hover { background: #203170; }

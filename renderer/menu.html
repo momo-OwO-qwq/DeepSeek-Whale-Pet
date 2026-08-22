@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src file:; img-src file: data:; media-src file:; style-src file:; script-src file:">
+  <title>小鲸鱼设置</title>
+  <link rel="stylesheet" href="menu.css">
+</head>
+<body>
+  <div class="wm-card">
+    <div class="wm-title">
+      <span>🐋 小鲸鱼设置</span>
+      <button id="wm-close" class="wm-x" title="关闭">×</button>
+    </div>
+
+    <label class="wm-row wm-key">
+      <span class="wm-label">API Key</span>
+      <div class="wm-fill">
+        <div class="wm-inline">
+          <input id="wm-apikey" type="password" placeholder="sk-..." autocomplete="off">
+          <button id="wm-apikey-eye" class="wm-mini" title="显示/隐藏">👁</button>
+        </div>
+        <div id="wm-apikey-note" class="wm-note"></div>
+      </div>
+    </label>
+
+    <label class="wm-row wm-key">
+      <span class="wm-label">平台令牌</span>
+      <div class="wm-fill">
+        <div class="wm-inline">
+          <input id="wm-token" type="password" placeholder="Bearer eyJ...（可选）" autocomplete="off">
+          <button id="wm-token-eye" class="wm-mini" title="显示/隐藏">👁</button>
+        </div>
+        <div class="wm-note">「实时·令牌」模式使用；不填则自动回落记账模式</div>
+      </div>
+    </label>
+
+    <label class="wm-row">
+      <span class="wm-label">用量模式</span>
+      <select id="wm-usage">
+        <option value="ledger">小鲸鱼记账（推荐）</option>
+        <option value="token">实时·令牌</option>
+      </select>
+    </label>
+
+    <label class="wm-row">
+      <span class="wm-label">大小</span>
+      <input id="wm-scale" class="wm-range" type="range" min="0.6" max="2.5" step="0.1">
+      <span id="wm-scale-v" class="wm-val"></span>
+    </label>
+
+    <label class="wm-row">
+      <span class="wm-label">音效</span>
+      <select id="wm-sound">
+        <option value="duck">小黄鸭</option>
+        <option value="fx1">音效1</option>
+      </select>
+    </label>
+
+    <label class="wm-row">
+      <span class="wm-label">音量</span>
+      <input id="wm-vol" class="wm-range" type="range" min="0" max="1" step="0.05">
+      <span id="wm-vol-v" class="wm-val"></span>
+    </label>
+
+    <label class="wm-row">
+      <span class="wm-label">峰谷文案</span>
+      <select id="wm-peak">
+        <option value="default">默认</option>
+        <option value="liangwen">梁文峰谷</option>
+        <option value="qiangqiang">!?强强?!</option>
+      </select>
+      <input id="wm-peaktext" class="wm-check" type="checkbox" title="气泡里显示峰谷时段提示">
+    </label>
+
+    <label class="wm-row">
+      <span class="wm-label">气泡开关</span>
+      <input id="wm-bubble" class="wm-check" type="checkbox">
+    </label>
+
+    <label class="wm-row">
+      <span class="wm-label">闲置半透明</span>
+      <input id="wm-idlefade" class="wm-check" type="checkbox">
+    </label>
+
+    <label class="wm-row">
+      <span class="wm-label">刷新间隔</span>
+      <input id="wm-refresh" class="wm-num" type="number" min="5" max="3600" step="1">
+      <span class="wm-unit">秒</span>
+    </label>
+
+    <label class="wm-row">
+      <span class="wm-label">低余额阈值</span>
+      <input id="wm-threshold" class="wm-num" type="number" min="0" step="0.1">
+      <span class="wm-unit">元</span>
+    </label>
+
+    <label class="wm-row">
+      <span class="wm-label">开机自启</span>
+      <input id="wm-autostart" class="wm-check" type="checkbox">
+    </label>
+
+    <div class="wm-row wm-actions">
+      <button id="wm-refresh-now" class="wm-btn">立即刷新</button>
+      <button id="wm-done" class="wm-btn wm-btn-primary">完成</button>
+    </div>
+
+    <div class="wm-foot">全局快捷键 Ctrl+Shift+R 刷新 · 单击鲸鱼查看/更换台词 · 拖拽吸附四边</div>
+  </div>
+  <script src="menu.js"></script>
+</body>
+</html>

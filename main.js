@@ -1,0 +1,496 @@
+'use strict'
+// ============================================================================
+// DeepSeek 余额小鲸鱼桌宠 —— Electron 主进程
+// 职责：透明置顶窗口、独立设置窗口、托盘、全局热键、开机自启、单实例、
+//       余额/用量拉取（lib/balance.js）、配置持久化（lib/config.js）、IPC 桥。
+// ============================================================================
+const path = require('path')
+const fs = require('fs')
+const os = require('os')
+const { app, BrowserWindow, Tray, Menu, globalShortcut, ipcMain, screen, Notification, nativeImage } = require('electron')
+
+const configMod = require('./lib/config')
+const balanceMod = require('./lib/balance')
+
+const IS_SMOKE = process.argv.includes('--smoke-test')
+const BASE_PX = 320
+const MENU_W = 376
+const MENU_H = 640
+const LOW_NOTIFY_THROTTLE_MS = 30 * 60 * 1000
+
+// ---- Wayland：强制走 XWayland，否则 setPosition / 拖拽不可用 --------------
+// （用户可用 ELECTRON_OZONE_PLATFORM_HINT 显式覆盖）
+if (process.platform === 'linux' && process.env.WAYLAND_DISPLAY && !process.env.ELECTRON_OZONE_PLATFORM_HINT) {
+  app.commandLine.appendSwitch('ozone-platform', 'x11')
+}
+
+let petWin = null
+let menuWin = null
+let tray = null
+let balanceService = null
+let dragState = null
+let dragTimer = null
+let ignoreMouse = false
+let lastLowNotifyAt = 0
+
+// ------------------------------- 单实例 ------------------------------------
+const gotLock = app.requestSingleInstanceLock()
+if (!gotLock) {
+  app.quit()
+} else {
+  app.on('second-instance', () => {
+    if (petWin && !petWin.isDestroyed()) {
+      petWin.showInactive()
+    }
+  })
+  main()
+}
+
+function main() {
+  app.whenReady().then(onReady)
+  app.on('window-all-closed', () => {
+    app.quit()
+  })
+  app.on('will-quit', () => {
+    globalShortcut.unregisterAll()
+  })
+}
+
+async function onReady() {
+  balanceService = new balanceMod.BalanceService()
+  createPetWindow()
+  createMenuWindow()
+  setupTray()
+  setupShortcuts()
+  registerIpc()
+
+  if (IS_SMOKE) await runSmoke()
+}
+
+// ================================ 鲸鱼窗口 =================================
+function createPetWindow() {
+  // 首帧前先定位到记忆位置（或默认右下角），避免在 (0,0) 闪一下
+  let initX = 0
+  let initY = 0
+  try {
+    const cfg = configMod.getEffective()
+    const wa = screen.getPrimaryDisplay().workArea
+    const w = Math.round(BASE_PX * (cfg.scale || 1))
+    if (typeof cfg.posX === 'number' && typeof cfg.posY === 'number') {
+      initX = Math.max(wa.x, Math.min(cfg.posX, wa.x + wa.width - w))
+      initY = Math.max(wa.y, Math.min(cfg.posY, wa.y + wa.height - w))
+    } else {
+      initX = wa.x + wa.width - w
+      initY = wa.y + wa.height - w
+    }
+  } catch (err) { /* 保持 0,0，由渲染进程接手 */ }
+
+  petWin = new BrowserWindow({
+    width: BASE_PX,
+    height: BASE_PX,
+    x: initX,
+    y: initY,
+    transparent: true,
+    frame: false,
+    backgroundColor: '#00000000',
+    alwaysOnTop: true,
+    hasShadow: false,
+    resizable: false,
+    movable: false,
+    skipTaskbar: true,
+    focusable: false,
+    show: false,
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+      backgroundThrottling: false,
+      autoplayPolicy: 'no-user-gesture-required',
+      spellcheck: false,
+    },
+  })
+  petWin.setAlwaysOnTop(true, 'floating')
+  petWin.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
+  petWin.loadFile(path.join(__dirname, 'renderer', 'pet.html'))
+  petWin.once('ready-to-show', () => {
+    if (!petWin) return
+    if (IS_SMOKE) petWin.setPosition(120, 120)
+    petWin.showInactive()
+  })
+  petWin.on('closed', () => {
+    petWin = null
+    app.quit()
+  })
+}
+
+// ================================ 设置窗口 =================================
+function createMenuWindow() {
+  menuWin = new BrowserWindow({
+    width: MENU_W,
+    height: MENU_H,
+    transparent: true,
+    frame: false,
+    backgroundColor: '#00000000',
+    alwaysOnTop: true,
+    hasShadow: false,
+    resizable: false,
+    skipTaskbar: true,
+    show: false,
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+      spellcheck: false,
+    },
+  })
+  menuWin.setAlwaysOnTop(true, 'floating')
+  menuWin.loadFile(path.join(__dirname, 'renderer', 'menu.html'))
+  // 点击其他地方 → 自动收起（与常见悬浮菜单一致）
+  menuWin.on('blur', () => {
+    if (menuWin && menuWin.isVisible()) menuWin.hide()
+  })
+  menuWin.on('closed', () => { menuWin = null })
+}
+
+function openMenu() {
+  if (!petWin || !menuWin || petWin.isDestroyed() || menuWin.isDestroyed()) return
+  const pb = petWin.getBounds()
+  const mb = menuWin.getBounds()
+  const wa = screen.getDisplayMatching(pb).workArea
+  let x = pb.x + pb.width - mb.width
+  let y = pb.y - mb.height - 8
+  if (y < wa.y) y = pb.y + pb.height + 8 // 上方放不下 → 放鲸鱼下方
+  x = Math.max(wa.x, Math.min(x, wa.x + wa.width - mb.width))
+  y = Math.max(wa.y, Math.min(y, wa.y + wa.height - mb.height))
+  menuWin.setPosition(Math.round(x), Math.round(y))
+  menuWin.show()
+  menuWin.focus()
+}
+
+// ================================ 托盘 =====================================
+function trayIcon() {
+  try {
+    const img = nativeImage.createFromPath(path.join(__dirname, 'assets', 'DSniang1.png'))
+    return img.isEmpty() ? img : img.resize({ width: 64, height: 64 })
+  } catch (err) {
+    return nativeImage.createEmpty()
+  }
+}
+
+function setupTray() {
+  try {
+    tray = new Tray(trayIcon())
+    tray.setToolTip('DeepSeek 余额小鲸鱼')
+    tray.on('click', togglePet)
+    tray.on('double-click', togglePet)
+    rebuildTrayMenu()
+  } catch (err) {
+    console.warn('[tray] 托盘不可用: ' + ((err && err.message) || err))
+  }
+}
+
+function rebuildTrayMenu() {
+  if (!tray) return
+  const cfg = configMod.getEffective()
+  try {
+    tray.setContextMenu(Menu.buildFromTemplate([
+      { label: '显示 / 隐藏鲸鱼', click: togglePet },
+      { label: '立即刷新余额', click: () => sendRefresh() },
+      { label: '打开设置', click: () => openMenu() },
+      { type: 'separator' },
+      { label: '开机自启', type: 'checkbox', checked: !!cfg.autostart, click: (item) => setAutostart(item.checked) },
+      { type: 'separator' },
+      { label: '退出', click: () => app.quit() },
+    ]))
+  } catch (err) { /* 少数桌面环境不支持动态菜单，忽略 */ }
+}
+
+function togglePet() {
+  if (!petWin || petWin.isDestroyed()) return
+  if (petWin.isVisible()) petWin.hide()
+  else petWin.showInactive()
+}
+
+function sendRefresh() {
+  if (petWin && !petWin.isDestroyed()) petWin.webContents.send('whale:refresh')
+}
+
+function broadcast(channel, payload) {
+  for (const w of [petWin, menuWin]) {
+    try {
+      if (w && !w.isDestroyed()) w.webContents.send(channel, payload)
+    } catch (err) { /* ignore */ }
+  }
+}
+
+// ================================ 热键 / 自启 ==============================
+function setupShortcuts() {
+  const accel = process.env.WHALE_PET_SHORTCUT || 'CommandOrControl+Shift+R'
+  try {
+    const ok = globalShortcut.register(accel, sendRefresh)
+    if (!ok) console.warn('[shortcut] 注册失败（可能已被占用）: ' + accel)
+  } catch (err) {
+    console.warn('[shortcut] ' + ((err && err.message) || err))
+  }
+}
+
+// XDG autostart（~/.config/autostart/*.desktop）；非 Linux 走 setLoginItemSettings
+function applyAutostart(enabled) {
+  try {
+    if (process.platform === 'linux') {
+      const dir = path.join(os.homedir(), '.config', 'autostart')
+      const file = path.join(dir, 'deepseek-balance-whale-pet.desktop')
+      if (enabled) {
+        fs.mkdirSync(dir, { recursive: true, mode: 0o755 })
+        const exec = app.isPackaged
+          ? '"' + process.execPath + '"'
+          : '"' + process.execPath + '" "' + app.getAppPath() + '"'
+        fs.writeFileSync(file, [
+          '[Desktop Entry]',
+          'Type=Application',
+          'Name=DeepSeek Balance Whale Pet',
+          'Comment=DeepSeek 余额小鲸鱼桌宠',
+          'Exec=' + exec,
+          'Terminal=false',
+          'X-GNOME-Autostart-enabled=true',
+          'Categories=Utility;',
+          '',
+        ].join('\n'), 'utf8')
+      } else {
+        fs.rmSync(file, { force: true })
+      }
+      return true
+    }
+    app.setLoginItemSettings({ openAtLogin: !!enabled })
+    return true
+  } catch (err) {
+    console.warn('[autostart] ' + ((err && err.message) || err))
+    return false
+  }
+}
+
+function setAutostart(enabled) {
+  const ok = applyAutostart(enabled)
+  configMod.save({ autostart: ok ? !!enabled : false })
+  rebuildTrayMenu()
+}
+
+// ================================ 低余额通知 ==============================
+function checkLowBalance(payload) {
+  if (!payload || !payload.ok || !payload.ok) return
+  const cfg = configMod.getEffective()
+  const th = Number(cfg.lowBalanceThreshold)
+  const b = Number(payload.totalBalance)
+  if (!isFinite(th) || !isFinite(b) || b < 0 || b >= th) return
+  const now = Date.now()
+  if (now - lastLowNotifyAt < LOW_NOTIFY_THROTTLE_MS) return
+  lastLowNotifyAt = now
+  try {
+    if (Notification.isSupported()) {
+      const n = new Notification({
+        title: '小鲸鱼提醒 🐋',
+        body: '余额已不足 ' + th.toFixed(2) + ' 元（当前 ' + b.toFixed(2) + ' 元），记得充值哦~',
+        icon: path.join(__dirname, 'assets', 'DSniang1.png'),
+      })
+      n.on('click', sendRefresh)
+      n.show()
+    }
+  } catch (err) { /* 忽略通知失败 */ }
+}
+
+// ================================ IPC =====================================
+function hasOwn(o, k) { return Object.prototype.hasOwnProperty.call(o || {}, k) }
+
+function clampNum(v, lo, hi) {
+  return Math.min(Math.max(v, lo), Math.max(lo, hi))
+}
+
+function setIgnore(ignore) {
+  if (!petWin || petWin.isDestroyed() || ignoreMouse === ignore) return
+  ignoreMouse = ignore
+  try {
+    petWin.setIgnoreMouseEvents(ignore, { forward: true })
+  } catch (err) { /* ignore */ }
+}
+
+async function getWorkAreaForPet() {
+  const b = (petWin && !petWin.isDestroyed()) ? petWin.getBounds() : null
+  const wa = b ? screen.getDisplayMatching(b).workArea : screen.getPrimaryDisplay().workArea
+  return { x: wa.x, y: wa.y, width: wa.width, height: wa.height }
+}
+
+function registerIpc() {
+  // ---------- 配置 ----------
+  ipcMain.handle('config:get', () => configMod.getEffective())
+
+  ipcMain.handle('config:set', (e, patch) => {
+    const next = configMod.save(patch)
+    if (!next) return configMod.getEffective()
+    // 影响余额结果的字段变化 → 使缓存失效，下次立即按新配置计算
+    if (hasOwn(patch, 'apiKey') || hasOwn(patch, 'platformToken') || hasOwn(patch, 'usageMode')) {
+      balanceService.invalidate()
+    }
+    if (hasOwn(patch, 'autostart')) {
+      setAutostart(!!next.autostart)
+    }
+    broadcast('config:changed', configMod.getEffective())
+    return configMod.getEffective()
+  })
+
+  // ---------- 余额 ----------
+  ipcMain.handle('balance:get', async () => {
+    const payload = await balanceService.getSnapshot(configMod.getEffective())
+    checkLowBalance(payload)
+    return payload
+  })
+
+  // ---------- 窗口 ----------
+  ipcMain.handle('window:get-workarea', () => getWorkAreaForPet())
+
+  ipcMain.on('window:resize', (e, msg) => {
+    if (!petWin || petWin.isDestroyed()) return
+    const w = Math.max(80, Math.round(Number(msg && msg.w) || BASE_PX))
+    const h = Math.max(80, Math.round(Number(msg && msg.h) || BASE_PX))
+    petWin.setSize(w, h)
+    // 部分 WM 在 setSize 后会掉置顶层，重新声明
+    petWin.setAlwaysOnTop(true, 'floating')
+  })
+
+  ipcMain.on('window:set-pos', (e, msg) => {
+    if (!petWin || petWin.isDestroyed()) return
+    const x = Math.round(Number(msg && msg.x) || 0)
+    const y = Math.round(Number(msg && msg.y) || 0)
+    petWin.setPosition(x, y)
+  })
+
+  // ---------- 拖拽（主进程轮询光标，窗口 1:1 跟手）----------
+  ipcMain.handle('drag:start', async (e, msg) => {
+    if (!petWin || petWin.isDestroyed()) return { ok: false }
+    dragState = {
+      offsetX: Number(msg && msg.offsetX) || 0,
+      offsetY: Number(msg && msg.offsetY) || 0,
+      lastPos: null,
+      startedAt: Date.now(),
+    }
+    setIgnore(false) // 拖拽期间必须保持可点击
+    if (dragTimer) clearInterval(dragTimer)
+    // 超出窗口边界的 pointermove 不会到达渲染进程，因此在主进程按 16ms 轮询跟手
+    dragTimer = setInterval(() => {
+      if (!dragState || !petWin || petWin.isDestroyed()) return
+      const cursor = screen.getCursorScreenPoint()
+      const bounds = petWin.getBounds()
+      const wa = screen.getDisplayNearestPoint(cursor).workArea
+      const x = Math.round(clampNum(cursor.x - dragState.offsetX, wa.x, wa.x + wa.width - bounds.width))
+      const y = Math.round(clampNum(cursor.y - dragState.offsetY, wa.y, wa.y + wa.height - bounds.height))
+      petWin.setPosition(x, y)
+      dragState.lastPos = { x, y }
+    }, 16)
+    return { ok: true }
+  })
+
+  ipcMain.handle('drag:end', () => {
+    if (dragTimer) { clearInterval(dragTimer); dragTimer = null }
+    let x = 0
+    let y = 0
+    if (dragState && dragState.lastPos) {
+      x = dragState.lastPos.x
+      y = dragState.lastPos.y
+    } else if (petWin && !petWin.isDestroyed()) {
+      const p = petWin.getPosition()
+      x = p[0]
+      y = p[1]
+    }
+    dragState = null
+    return { x, y }
+  })
+
+  // ---------- 透明像素点击穿透 ----------
+  ipcMain.on('pet:hover', (e, msg) => {
+    if (dragState) return
+    setIgnore(!(msg && msg.hit))
+  })
+
+  // ---------- 设置窗口 ----------
+  ipcMain.on('menu:open', () => openMenu())
+  ipcMain.on('menu:close', () => {
+    if (menuWin && !menuWin.isDestroyed()) menuWin.hide()
+  })
+}
+
+// ================================ Smoke 测试 ===============================
+// 说明：--smoke-test 用于自动化验证（CI / 开发机）。除基础状态外，还会：
+//   1) capturePage 截图鲸鱼窗口与设置窗口（验证渲染）
+//   2) sendInputEvent 模拟点击鲸鱼 → 验证点击刷新 + 气泡弹出链路
+async function runSmoke() {
+  const outDir = process.env.WHALE_PET_HOME || os.tmpdir()
+  const results = { petCreated: !!petWin, menuCreated: !!menuWin, tray: !!tray }
+  // 兜底：无论如何 20s 内退出，避免 CI/开发机挂死
+  setTimeout(() => app.exit(0), 20000)
+  const withTimeout = (p, ms, fallback) =>
+    Promise.race([
+      Promise.resolve(p).then((v) => ({ ok: true, v }), (e) => ({ ok: false, e })),
+      new Promise((r) => setTimeout(() => r({ ok: false, e: 'timeout' }), ms)),
+    ]).then((r) => (r.ok ? r.v : fallback))
+
+  const capturer = async (win, name) => {
+    const img = await withTimeout(win.webContents.capturePage(), 4000, null)
+    if (img) {
+      try {
+        fs.writeFileSync(path.join(outDir, name), img.toPNG())
+        results[name] = true
+      } catch (err) {
+        results[name] = 'WRITE FAIL: ' + String((err && err.message) || err)
+      }
+    } else {
+      results[name] = 'CAPTURE TIMEOUT'
+    }
+  }
+  await new Promise((r) => setTimeout(r, 1800))
+  await capturer(petWin, 'smoke-pet-1.png')
+
+  // 模拟点击鲸鱼（右下角鲸鱼区域中心）
+  try {
+    const b = petWin.getBounds()
+    petWin.webContents.sendInputEvent({ type: 'mouseDown', x: b.width - 60, y: b.height - 60, button: 'left', clickCount: 1 })
+    petWin.webContents.sendInputEvent({ type: 'mouseUp', x: b.width - 60, y: b.height - 60, button: 'left', clickCount: 1 })
+    results.clickInjected = true
+  } catch (err) {
+    results.clickInjected = 'FAIL: ' + String((err && err.message) || err)
+  }
+  await new Promise((r) => setTimeout(r, 900))
+  await capturer(petWin, 'smoke-pet-2.png')
+
+  // 模拟拖拽：dragStart 后主进程轮询光标移动窗口，dragEnd 返回最终位置
+  try {
+    const before = petWin.getPosition()
+    await withTimeout(petWin.webContents.executeJavaScript('window.whaleAPI.dragStart(160, 160)', true), 3000, null)
+    await new Promise((r) => setTimeout(r, 500))
+    const end = await withTimeout(petWin.webContents.executeJavaScript('window.whaleAPI.dragEnd()', true), 3000, null)
+    const cursor = screen.getCursorScreenPoint()
+    const wa = screen.getDisplayNearestPoint(cursor).workArea
+    const bounds = petWin.getBounds()
+    const wantX = Math.max(wa.x, Math.min(cursor.x - 160, wa.x + wa.width - bounds.width))
+    const wantY = Math.max(wa.y, Math.min(cursor.y - 160, wa.y + wa.height - bounds.height))
+    results.drag = end ? {
+      before,
+      after: end,
+      expected: { x: Math.round(wantX), y: Math.round(wantY) },
+      ok: end.x !== undefined && Math.abs(end.x - wantX) < 2 && Math.abs(end.y - wantY) < 2,
+    } : { before, FAIL: 'dragStart/dragEnd timeout' }
+  } catch (err) {
+    results.drag = 'FAIL: ' + String((err && err.message) || err)
+  }
+
+  openMenu()
+  await new Promise((r) => setTimeout(r, 700))
+  await capturer(menuWin, 'smoke-menu.png')
+
+  const cfg = configMod.getEffective()
+  results.configPath = configMod.CONFIG_FILE
+  results.apiKeySource = cfg.apiKeySource || (cfg.apiKey ? 'config' : 'missing')
+  results.balance = await withTimeout(balanceService.getSnapshot(cfg), 25000, { ok: false, error: 'balance timeout' })
+  console.log('[smoke] ' + JSON.stringify(results, null, 2))
+  app.exit(0)
+}

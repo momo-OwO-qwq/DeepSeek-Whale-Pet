@@ -1,0 +1,122 @@
+/* 设置窗口样式：白色圆角卡片，风格与原版汉堡菜单一致（#203170 主色） */
+html, body {
+  margin: 0;
+  padding: 0;
+  background: transparent;
+  overflow: hidden;
+  user-select: none;
+  -webkit-user-select: none;
+  font-family: system-ui, "Noto Sans CJK SC", sans-serif;
+  color: #203170;
+}
+
+.wm-card {
+  position: absolute;
+  inset: 8px;
+  background: rgba(255, 255, 255, .96);
+  border: 1px solid rgba(32, 49, 112, .35);
+  border-radius: 12px;
+  padding: 12px 14px 10px;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, .18);
+  overflow-y: auto;
+  color-scheme: light;
+  box-sizing: border-box;
+}
+
+.wm-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 14px;
+  font-weight: 700;
+  margin-bottom: 6px;
+}
+
+.wm-x {
+  border: none;
+  background: transparent;
+  color: #203170;
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 4px;
+}
+.wm-x:hover { color: #e0433f; }
+
+.wm-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 7px 0;
+  font-size: 12px;
+  white-space: nowrap;
+}
+.wm-row select,
+.wm-row input[type="password"],
+.wm-row input[type="number"] {
+  flex: 1;
+  min-width: 0;
+  border: 1px solid rgba(32, 49, 112, .4);
+  border-radius: 6px;
+  padding: 3px 6px;
+  font-size: 12px;
+  color: #203170;
+  background: #fff;
+  box-sizing: border-box;
+}
+.wm-row input[type="number"] { flex: 0 0 64px; width: 64px; }
+.wm-row select { padding: 3px 2px; background: rgba(32, 49, 112, .08); cursor: pointer; }
+
+.wm-label { flex: 0 0 62px; color: #203170; }
+
+.wm-key .wm-fill { flex: 1; min-width: 0; }
+.wm-inline { display: flex; gap: 4px; }
+.wm-inline input { flex: 1; min-width: 0; }
+.wm-mini {
+  flex: 0 0 auto;
+  border: 1px solid rgba(32, 49, 112, .4);
+  border-radius: 6px;
+  background: rgba(32, 49, 112, .08);
+  color: #203170;
+  cursor: pointer;
+  padding: 2px 6px;
+  font-size: 12px;
+}
+.wm-mini:hover { background: rgba(32, 49, 112, .16); }
+.wm-note {
+  margin-top: 3px;
+  font-size: 10.5px;
+  color: #9fb0d9;
+  white-space: normal;
+  line-height: 1.3;
+}
+.wm-note.wm-note-ok { color: #2fa24c; }
+.wm-note.wm-note-warn { color: #d98324; }
+
+.wm-range { flex: 1; min-width: 0; accent-color: #203170; }
+.wm-val { width: 40px; text-align: right; color: #203170; font-size: 12px; }
+.wm-check { width: 16px; height: 16px; accent-color: #203170; cursor: pointer; flex: 0 0 auto; }
+.wm-unit { color: #9fb0d9; }
+
+.wm-actions { margin-top: 4px; }
+.wm-btn {
+  flex: 1;
+  border: 1px solid rgba(32, 49, 112, .4);
+  border-radius: 8px;
+  background: rgba(32, 49, 112, .08);
+  color: #203170;
+  font-size: 12px;
+  padding: 6px 0;
+  cursor: pointer;
+}
+.wm-btn:hover { background: rgba(32, 49, 112, .16); }
+.wm-btn-primary { background: #203170; color: #fff; }
+.wm-btn-primary:hover { background: #2c4390; }
+
+.wm-foot {
+  margin-top: 6px;
+  font-size: 10.5px;
+  color: #9fb0d9;
+  line-height: 1.4;
+  white-space: normal;
+}
