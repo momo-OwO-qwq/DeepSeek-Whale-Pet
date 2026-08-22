@@ -151,6 +151,9 @@
   var customGroups = null
   var currentImgSrc = ''
   var lastPointerMoveAt = Date.now()
+  var flipped = false
+  var anchorCenterX = null // 屏幕水平中心：窗口位于左半侧 → 鲸鱼贴左（镜像），可触左边缘
+  var anchorCenterY = null
 
   function clamp(v, lo, hi) { return v < lo ? lo : (v > hi ? hi : v) }
 
@@ -533,6 +536,18 @@
   function advancePos(x, y) {
     state.posX = x
     state.posY = y
+    updateAnchor()
+  }
+
+  // 方向感知锚点：窗口中心在屏幕左半 → 鲸鱼贴窗口左缘（水平镜像）→ 可触及左边缘
+  function updateAnchor() {
+    if (anchorCenterX === null) return
+    var onLeft = state.posX + state.winW / 2 < anchorCenterX
+    if (onLeft !== flipped) {
+      flipped = onLeft
+      root.classList.toggle('wp-left', flipped)
+      reportShape() // 镜像后形状需随之镜像
+    }
   }
 
   // ---------- 透明点击穿透：窗口裁剪为鲸鱼/气泡/按钮区域 ----------
@@ -557,6 +572,10 @@
       }
       var m = menuBtn.offsetWidth
       if (m > 0) p(menuBtn.offsetLeft - 4, menuBtn.offsetTop - 4, m + 8, menuBtn.offsetHeight + 8)
+      if (flipped) {
+        // 水平镜像：把矩形按窗口宽度翻转
+        for (var i = 0; i < rects.length; i++) rects[i].x = W - (rects[i].x + rects[i].w)
+      }
       api.setShape(rects)
     } catch (err) {}
   }
@@ -615,11 +634,28 @@
       var lx = (e.clientX - r.left) / r.width * 610
       var ly = (e.clientY - r.top) / r.height * 610
       if (lx < 0 || ly < 0 || lx >= 610 || ly >= 610) return false
+      if (flipped) lx = 610 - lx // 镜像后坐标映射需反转
       var data = hitCanvas.getContext('2d').getImageData(Math.floor(lx), Math.floor(ly), 1, 1).data
       return data[3] > 10
     } catch (err) {
       return true
     }
+  }
+
+  // 是否在「可点击区域」内（鲸鱼盒 / 气泡盒 / 按钮盒）—— 用于显示汉堡按钮：
+  // 鼠标从鲸鱼滑向按钮时若已离开鲸鱼 alpha，仍应保持按钮可见（避免三横线消失）。
+  function inClickable(e) {
+    try {
+      var r = img.getBoundingClientRect()
+      if (r && e.clientX >= r.left - 6 && e.clientX <= r.right + 6 && e.clientY >= r.top - 6 && e.clientY <= r.bottom + 6) return true
+      var m = menuBtn.getBoundingClientRect()
+      if (m && e.clientX >= m.left - 6 && e.clientX <= m.right + 6 && e.clientY >= m.top - 6 && e.clientY <= m.bottom + 6) return true
+      if (bubbleShown) {
+        var b = bubbleBox.getBoundingClientRect()
+        if (b && e.clientX >= b.left - 6 && e.clientX <= b.right + 6 && e.clientY >= b.top - 6 && e.clientY <= b.bottom + 6) return true
+      }
+      return isWhaleHit(e)
+    } catch (err) { return isWhaleHit(e) }
   }
 
   // ------------------------------------------------------------- 指针交互
@@ -666,8 +702,8 @@
       api.dragDelta(mx, my, e.clientX, e.clientY)
       return
     }
-    // 悬停在鲸鱼上 → 显示菜单按钮 + 抓取光标
-    var over = isWhaleHit(e)
+    // 悬停在可点击区域 → 显示菜单按钮 + 抓取光标（按键盒判定，避免滑向按钮时消失）
+    var over = inClickable(e)
     menuBtn.classList.toggle('wp-menu-btn-visible', over)
     setWidgetCursor(over ? 'grab' : '')
   }
@@ -869,6 +905,12 @@
     var c = await api.getConfig()
     state.scale = c.scale || 1
     root.style.setProperty('--wp-base', (BASE_PX * state.scale) + 'px')
+    // 屏幕水平/垂直中心（用于方向感知锚点）
+    try {
+      var bd = await api.getDisplayBounds()
+      anchorCenterX = bd.x + bd.width / 2
+      anchorCenterY = bd.y + bd.height / 2
+    } catch (err) {}
     // 默认位置：右下角（等待 initPosition 覆盖为记忆位置）
     var wa0 = await api.getWorkArea()
     state.winW = Math.round(BASE_PX * state.scale)

@@ -30,6 +30,10 @@ html, body {
   transition: transform .3s ease;
 }
 .wp-root.wp-dragging { cursor: grabbing; transition: none; }
+/* 方向感知锚点：窗口位于屏幕左半侧时整体镜像（鲸鱼贴左缘，可触左边缘） */
+.wp-root.wp-left { transform: scaleX(-1); }
+.wp-root.wp-left .wp-text { transform: translate(-50%, -50%) scaleX(-1); }
+.wp-root.wp-left .wp-gif { transform: translate(-50%, -50%) scaleX(-1); }
 
 /* 呼吸动画层：静止时鲸鱼轻微缩放（0.98~1.02，周期 2s） */
 .wp-breath {

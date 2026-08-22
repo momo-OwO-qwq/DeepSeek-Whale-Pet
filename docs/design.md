@@ -82,6 +82,8 @@ petWin.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
 - **验证**：冒烟测试向渲染进程派发物理一致的合成 PointerEvent（movementX 探针 [-12,-20] 确认构造事件携带），三条断言连续多轮通过：落点 = 起点 + Σmovement（exact）、轨迹单调无回摆（noTwitch）、连续拖拽贴到 workArea 上边缘（reached）。真实噪声事件（真实鼠标微动）与合成事件混杂时依旧稳定（守卫逐事件独立）。
 - 松手回渲染进程 `finishDrag`：**自由定位**（v1.4 起取消四分之一贴边吸附与左吸附镜像翻转——实测吸附会在放大窗口后把鲸鱼拽回边缘，导致「修改大小后难以移动」；现在仅 clamp 在桌面 workArea 内，可自由贴到任意边缘），随后 `setConfig({posX, posY})` 记忆位置。
 - **缩放固定角**：缩放改变窗口尺寸时固定鲸鱼右下角（`fixX = posX + oldW`、`fixY = posY + oldH`），随后钳制回 workArea。
+- **方向感知锚点**：GNOME/Wayland 会把 XWayland 窗口原点钳制在 `(0, 32)` ↔ `(屏宽−w, 屏高−h)`（实测 `xdotool windowmove` 验证），因此右下角锚定的鲸鱼可触及右/下边缘，但结构上无法到达左/上边缘。解决：窗口中心在屏幕左半时把鲸鱼**镜像到窗口左缘**（`scaleX(-1)`，文字/动图反向），使其贴住左边缘；右半则锚定右缘。锚点随 `finishDrag` 释放位置切换（平滑 .3s 过渡）。
+- **启动尺寸即时生效**：v1.6 修复——`createPetWindow` 由配置缩放尺寸创建窗口（此前硬编码 320×320，启动时 `setSize` 在窗口映射前被 WM 丢弃，改过的尺寸不生效）。
 - **验证**：smoke 向渲染进程派发携带显式 movementX 的合成 PointerEvent（走真实处理器代码），断言落点 = 起点 + movement 总和（exact）、轨迹单调（noTwitch）、连续拖拽贴到 workArea 上边缘（reached）。
 
 ### 4.3 余额拉取（与原版一致）

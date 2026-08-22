@@ -66,8 +66,7 @@ function main() {
 async function onReady() {
   balanceService = new balanceMod.BalanceService()
   createPetWindow()
-  const menuPos = menuPositionNearPet()
-  createMenuWindow(menuPos ? menuPos.x : undefined, menuPos ? menuPos.y : undefined)
+  createMenuWindow() // 隐藏创建；打开时由 openMenu() 居中
   applyNativeTheme()
   setupTray()
   setupShortcuts()
@@ -78,25 +77,27 @@ async function onReady() {
 
 // ================================ 鲸鱼窗口 =================================
 function createPetWindow() {
-  // 首帧前先定位到记忆位置（或默认右下角），避免在 (0,0) 闪一下
+  // 首帧前按配置缩放尺寸与位置创建（否则启动时 setSize 在窗口映射前可能被 WM 丢弃，
+  // 导致改过的尺寸/位置不生效、回到 320 默认）
   let initX = 0
   let initY = 0
+  let initSize = BASE_PX
   try {
     const cfg = configMod.getEffective()
     const wa = screen.getPrimaryDisplay().workArea
-    const w = Math.round(BASE_PX * (cfg.scale || 1))
+    initSize = Math.round(BASE_PX * (cfg.scale || 1))
     if (typeof cfg.posX === 'number' && typeof cfg.posY === 'number') {
-      initX = Math.max(wa.x, Math.min(cfg.posX, wa.x + wa.width - w))
-      initY = Math.max(wa.y, Math.min(cfg.posY, wa.y + wa.height - w))
+      initX = Math.max(wa.x, Math.min(cfg.posX, wa.x + wa.width - initSize))
+      initY = Math.max(wa.y, Math.min(cfg.posY, wa.y + wa.height - initSize))
     } else {
-      initX = wa.x + wa.width - w
-      initY = wa.y + wa.height - w
+      initX = wa.x + wa.width - initSize
+      initY = wa.y + wa.height - initSize
     }
-  } catch (err) { /* 保持 0,0，由渲染进程接手 */ }
+  } catch (err) { /* 保持默认 */ }
 
   petWin = new BrowserWindow({
-    width: BASE_PX,
-    height: BASE_PX,
+    width: initSize,
+    height: initSize,
     x: initX,
     y: initY,
     transparent: true,
@@ -168,29 +169,13 @@ function createMenuWindow(initX, initY) {
   menuWin.on('closed', () => { menuWin = null })
 }
 
-// 计算设置窗应出现的位置：鲸鱼上方优先、放不下则下方，始终在屏幕内
-function menuPositionNearPet() {
-  if (!petWin || petWin.isDestroyed()) return null
-  const pb = petWin.getBounds()
-  const wa = screen.getDisplayMatching(pb).workArea
-  let x = pb.x + pb.width - MENU_W
-  let y = pb.y - MENU_H - 8
-  if (y < wa.y) y = pb.y + pb.height + 8 // 上方放不下 → 放鲸鱼下方
-  x = Math.max(wa.x, Math.min(x, wa.x + wa.width - MENU_W))
-  y = Math.max(wa.y, Math.min(y, wa.y + wa.height - MENU_H))
-  return { x: Math.round(x), y: Math.round(y) }
-}
-
 function openMenu() {
-  // 用户直接叉掉窗口后 menuWin 为 null —— 按需重建（否则再也打不开设置）
-  const pos = menuPositionNearPet()
-  if (!menuWin || menuWin.isDestroyed()) {
-    createMenuWindow(pos ? pos.x : undefined, pos ? pos.y : undefined)
-  }
+  // 用户直接叉掉窗口后 menuWin 为 null —— 按需重建
+  if (!menuWin || menuWin.isDestroyed()) createMenuWindow()
   if (!menuWin || menuWin.isDestroyed()) return
-  // 已存在（隐藏）的窗口：显示前校正位置；新建窗口在构造时就带上了坐标，
-  // 防止部分 WM 首次 map 时使用默认居中位置
-  if (pos) menuWin.setPosition(pos.x, pos.y)
+  // 居中打开：大尺寸鲸鱼不再遮挡设置窗（用户反馈）
+  const d = (petWin && !petWin.isDestroyed()) ? screen.getDisplayMatching(petWin.getBounds()) : screen.getPrimaryDisplay()
+  menuWin.center()
   menuWin.show()
   menuWin.focus()
 }
@@ -353,7 +338,11 @@ async function getWorkAreaForPet() {
 
 function registerIpc() {
   // ---------- 配置 ----------
-  ipcMain.handle('config:get', () => configMod.getEffective())
+  ipcMain.handle('config:get', () => {
+    const cfg = configMod.getEffective()
+    if (process.env.WHALE_PET_TRACE === '1') console.log('[trace] config:get scale=' + cfg.scale + ' dir=' + configMod.CONFIG_DIR)
+    return cfg
+  })
 
   ipcMain.handle('config:set', (e, patch) => {
     const next = configMod.save(patch)
@@ -406,6 +395,7 @@ function registerIpc() {
     if (!petWin || petWin.isDestroyed()) return
     const w = Math.max(80, Math.round(Number(msg && msg.w) || BASE_PX))
     const h = Math.max(80, Math.round(Number(msg && msg.h) || BASE_PX))
+    if (process.env.WHALE_PET_TRACE === '1') console.log('[trace] resize ->', w, h)
     petWin.setSize(w, h)
     // 部分 WM 在 setSize 后会掉置顶层，重新声明
     petWin.setAlwaysOnTop(true, 'screen-saver')
@@ -737,6 +727,21 @@ async function runSmoke() {
       cornerAnchored: Math.abs((sb.x + sb.width) - (posBeforeScale[0] + 320)) <= 3 && Math.abs((sb.y + sb.height) - (posBeforeScale[1] + 320)) <= 3,
       inScreen: sb.x >= sbd.x && sb.y >= sbd.y && sb.x + sb.width <= sbd.x + sbd.width && sb.y + sb.height <= sbd.y + sbd.height,
     }
+
+    // ④ 方向感知锚点：拖到左半屏后鲸鱼应镜像贴左（可触左边缘）。
+    // 走真实 pointer 路径（pointerdown → 大幅度左移 pointermove → pointerup）：
+    // 渲染进程 finishDrag → advancePos(左) → updateAnchor → wp-left。
+    const cDown = `(function(){document.dispatchEvent(new PointerEvent('pointerdown',{clientX:260,clientY:260,button:0,buttons:1,pointerId:9,pointerType:'mouse',isPrimary:true,bubbles:true,cancelable:true}))})()`
+    const cMove = (mx, cxi) => `(function(){document.dispatchEvent(new PointerEvent('pointermove',{clientX:${cxi},clientY:260,movementX:${mx},movementY:0,button:0,buttons:1,pointerId:9,pointerType:'mouse',isPrimary:true,bubbles:true,cancelable:true}))})()`
+    const cUp = `(function(){document.dispatchEvent(new PointerEvent('pointerup',{clientX:-500,clientY:260,button:0,buttons:1,pointerId:9,pointerType:'mouse',isPrimary:true,bubbles:true,cancelable:true}))})()`
+    await withTimeout(petWin.webContents.executeJavaScript(cDown, true), 2000, null)
+    let cxi = 260 - 600
+    for (let j = 0; j < 5; j++) { await withTimeout(petWin.webContents.executeJavaScript(cMove(-600, cxi), true), 2000, null); cxi -= 600; await new Promise((r) => setTimeout(r, 30)) }
+    await withTimeout(petWin.webContents.executeJavaScript(cUp, true), 2000, null)
+    await new Promise((r) => setTimeout(r, 700))
+    const anchor = await withTimeout(petWin.webContents.executeJavaScript("(function(){var r=document.querySelector('.wp-root');return r?r.classList.contains('wp-left'):null})()", true), 2000, null)
+    const ap = petWin.getPosition()
+    results.drag.anchor = { pos: { x: ap[0], y: ap[1] }, flipped: anchor === true }
   } catch (err) {
     results.drag = 'FAIL: ' + String((err && err.message) || err)
   }
@@ -745,26 +750,21 @@ async function runSmoke() {
   await new Promise((r) => setTimeout(r, 700))
   await capturer(menuWin, 'smoke-menu.png')
 
-  // ④ 设置窗被直接叉掉后：应能按需重建并再次打开，且紧贴鲸鱼而非默认居中
+  // ④ 设置窗被直接叉掉后：应能按需重建并再次打开，且默认居中（不被大鲸鱼遮挡）
   try {
-    const petPos = petWin.getPosition()
-    const petW = petWin.getBounds().width
-    const petH = petWin.getBounds().height
     menuWin.close()
     await new Promise((r) => setTimeout(r, 500))
     openMenu()
     await new Promise((r) => setTimeout(r, 600))
     const mb = menuWin && !menuWin.isDestroyed() ? menuWin.getBounds() : null
-    const wa2 = await getWorkAreaForPet()
+    const d = screen.getDisplayMatching(mb || petWin.getBounds())
+    const cx = d.bounds.x + d.bounds.width / 2
+    const cy = d.bounds.y + d.bounds.height / 2
     results.menuReopen = mb ? {
       recreated: true,
       visible: menuWin.isVisible(),
-      rightAligned: Math.abs((mb.x + mb.width) - (petPos[0] + petW)) <= 4,
-      // 上/下方紧贴鲸鱼，或已钳制到屏幕上/下边缘（均非默认居中）
-      nearPetVertically: (Math.abs((mb.y + mb.height) - (petPos[1] - 8)) <= 6) ||
-        (Math.abs(mb.y - (petPos[1] + petH + 8)) <= 6) ||
-        Math.abs(mb.y - wa2.y) <= 2 ||
-        Math.abs((mb.y + mb.height) - (wa2.y + wa2.height)) <= 2,
+      // center() 包含系统标题栏高度（约 1 位数十 px），容忍 30px
+      centered: Math.abs((mb.x + mb.width / 2) - cx) <= 8 && Math.abs((mb.y + mb.height / 2) - cy) <= 30,
       pos: { x: mb.x, y: mb.y },
     } : { recreated: false }
   } catch (err) {
