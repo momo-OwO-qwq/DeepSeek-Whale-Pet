@@ -17,7 +17,7 @@
 | 点击可靠 | 真实鼠标点击鲸鱼必然响应（气泡/刷新/拖拽），不依赖 OS 级穿透 |
 | 余额监控 | 60s 自动刷新 + 点击手动；数字滚动动画；失败沿用最近余额 |
 | 今日已用 | 记账模式（免令牌）/ 令牌模式（峰谷定价）与原版一致 |
-| 桌宠交互 | 拖拽吸附、镜像翻转、按压 Q 弹、音效、随机台词、汉堡菜单 |
+| 桌宠交互 | 自由拖拽、按压 Q 弹、音效、随机台词、汉堡菜单 |
 | 桌宠动效 | 呼吸、闲置半透明、低余额提醒、情绪表情 |
 | 系统集成 | 托盘、全局热键、开机自启、单实例、系统通知 |
 | 配置持久化 | `~/.config/whale-pet/`（config.json + usage.json，密钥 0600） |
@@ -51,7 +51,7 @@
 │ preload.js → window.whaleAPI     │   │ preload.js → window.whaleAPI       │
 │ 渲染进程 renderer/pet.*（桌宠）   │   │ 渲染进程 renderer/menu.*（设置）    │
 │   SVG 气泡 / 鲸鱼 PNG / 音效       │   │  表单控件 → setConfig → 广播生效   │
-│   pointer 拖拽 + 吸附 + 命中忽略   │   │  Esc / blur 自动收起               │
+│   pointer 拖拽 + 命中忽略            │   │  Esc / blur 自动收起               │
 └──────────────────────────────────┘   └────────────────────────────────────┘
 ```
 
@@ -75,17 +75,16 @@ petWin.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
 - **最终方案（与参考实现 deepseek-whale-pet 一致）**：**完全不做 OS 级穿透**——窗口始终接收鼠标事件；渲染进程用 `isWhaleHit` 画布 alpha 判定，鲸鱼本体（及气泡/菜单按钮）之外的点按直接忽略。代价是窗口矩形内的透明区域会吃掉点击，换来的是**真实鼠标点击 100% 可靠**，并用 xdotool 真实点击自动化验证通过（修复前 BUBBLE=false，修复后 BUBBLE=true 连续 14 次探针采样）。
 - `focusable: false` 也被移除：与参考实现一致的最小窗口属性集，避免个别 WM 下的输入怪癖。
 
-### 4.2 拖拽 + 吸附（v1.3：主进程双通道引擎，真实鼠标可拖、无抽搐）
+### 4.2 拖拽（v1.4：主进程双通道引擎 + 自由定位，真实鼠标可拖、无抽搐）
 
-拖拽引擎整体收归**主进程**，渲染进程仅做两件事：收集原始位移 `e.movementX/Y` 逐事件上报、松手后吸附+保存位置。
+拖拽引擎整体收归**主进程**，渲染进程仅做两件事：收集原始位移 `e.movementX/Y` 逐事件上报、松手后钳制定位+保存位置。
 
 - **主通道（光标权威）**：`drag:start` 后主进程 16ms 轮询 `screen.getCursorScreenPoint()` → `pos = cursor − offset` → clamp → `setPosition`。与参考实现 deepseek-whale-pet 同款；真实鼠标移动会更新其事件缓存，无任何窗口相对坐标参与 → 无反馈回路。
 - **备通道（原始位移）**：渲染进程把每个 pointermove 的 `(movementX, movementY, clientX, clientY)` 逐事件直发主进程（单事件失败互不影响）；主进程**逐事件**执行：一致性守卫（`Δclient ≈ movement − Δwindow`，容差 8px，拒绝窗口移动合成的回送事件）→ 以自身 `getBounds()` 为基准累加位移 → clamp → `setPosition`。光标通道一旦真实移动即锁定权威（`cursorLock`），增量通道让位。
 - **返工记录（全部实测复现）**：client/screen 与窗口位置耦合——绝对式「起点+client 位移」→ 2 帧追逐振荡；`screenX` 本环境为 winPos+client 合成值 → 误差指数放大；渲染进程做位移累加 + rAF 合并发送 → 被守卫拒绝的真实噪声事件会顺带吞掉未发送的位移；均废弃。逐事件直发 + 主进程权威解决。
 - **验证**：冒烟测试向渲染进程派发物理一致的合成 PointerEvent（movementX 探针 [-12,-20] 确认构造事件携带），三条断言连续多轮通过：落点 = 起点 + Σmovement（exact）、轨迹单调无回摆（noTwitch）、连续拖拽贴到 workArea 上边缘（reached）。真实噪声事件（真实鼠标微动）与合成事件混杂时依旧稳定（守卫逐事件独立）。
-- 松手回渲染进程完成**四分之一吸附**（中心 x < 1/4 → 左、> 3/4 → 右；y 同理），吸附后 `setConfig({posX,posY,posH,posV})` 记忆位置。
-- **左吸附镜像**：`state.h==='left'` 时根节点 `scaleX(-1)`，气泡文字反向 `scaleX(-1)` 保持可读。
-- **缩放固定角**：缩放改变窗口尺寸时，非翻转锚鲸鱼右下角、翻转锚左下角不动（`fixX/fixY`），随后钳制回 workArea。
+- 松手回渲染进程 `finishDrag`：**自由定位**（v1.4 起取消四分之一贴边吸附与左吸附镜像翻转——实测吸附会在放大窗口后把鲸鱼拽回边缘，导致「修改大小后难以移动」；现在仅 clamp 在桌面 workArea 内，可自由贴到任意边缘），随后 `setConfig({posX, posY})` 记忆位置。
+- **缩放固定角**：缩放改变窗口尺寸时固定鲸鱼右下角（`fixX = posX + oldW`、`fixY = posY + oldH`），随后钳制回 workArea。
 - **验证**：smoke 向渲染进程派发携带显式 movementX 的合成 PointerEvent（走真实处理器代码），断言落点 = 起点 + movement 总和（exact）、轨迹单调（noTwitch）、连续拖拽贴到 workArea 上边缘（reached）。
 
 ### 4.3 余额拉取（与原版一致）

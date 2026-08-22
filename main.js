@@ -370,6 +370,7 @@ function registerIpc() {
   // ---------- 拖拽（主进程双通道引擎，见文件头注释）----------
   ipcMain.handle('drag:start', (e, msg) => {
     if (!petWin || petWin.isDestroyed()) return { ok: false }
+    if (process.env.WHALE_PET_TRACE === '1') console.log('[trace] drag:start', JSON.stringify(msg), 'bounds', JSON.stringify(petWin.getBounds()))
     dragState = {
       offsetX: Number(msg && msg.offsetX) || 0,
       offsetY: Number(msg && msg.offsetY) || 0,
@@ -419,6 +420,7 @@ function registerIpc() {
     // 一致性守卫：Δclient ≈ movement − Δwindow（拒绝窗口移动合成的回送事件）
     const expectX = dragState.lastClientX + dx - dragState.lastAppliedDx
     const expectY = dragState.lastClientY + dy - dragState.lastAppliedDy
+    if (process.env.WHALE_PET_TRACE === '1') console.log('[trace] drag:delta', JSON.stringify(msg), 'expect', expectX, expectY, 'applied', dragState.lastAppliedDx, dragState.lastAppliedDy)
     if (Math.abs(cx - expectX) > 8 || Math.abs(cy - expectY) > 8) return
     dragState.lastClientX = cx
     dragState.lastClientY = cy
@@ -656,8 +658,8 @@ async function runSmoke() {
       after: { x: c1[0], y: c1[1] },
       moved: Math.hypot(c1[0] - before[0], c1[1] - before[1]) > 20,
       noTwitch: monotonic(preSnap, 'x', before[0]) && monotonic(preSnap, 'y', before[1]),
-      // 净位移 = 注入的 movement 总和（x 吸附回右边缘时以贴边为准）
-      exact: Math.abs(c1[1] - (before[1] - 160)) <= 2,
+      // 净位移 = 注入的 movement 总和（已取消贴边吸附，落点即指针位移终点）
+      exact: Math.abs(c1[0] - (before[0] - 96)) <= 2 && Math.abs(c1[1] - (before[1] - 160)) <= 2,
     }
 
     // ② 连续向上拖 → 验证能贴到上边缘（用户报告的重点）。
@@ -676,6 +678,20 @@ async function runSmoke() {
     }
     const c3 = petWin.getPosition()
     results.drag.topEdge = { after: { x: c3[0], y: c3[1] }, reached: Math.abs(c3[1] - wa.y) <= 2 }
+
+    // ③ 修改大小（用户曾报告改大小后难以移动——根因是贴边吸附在放大后
+    // 把窗口拽回边缘，本次已取消吸附）。验证：缩放生效、鲸鱼右下角锚定、
+    // 窗口仍在屏幕内。（拖拽行为由 ①② 覆盖；真实用户拖拽事件在开发机上
+    // 会与本测试并发，不再在此处注入。）
+    const posBeforeScale = petWin.getPosition()
+    await withTimeout(petWin.webContents.executeJavaScript('window.whaleAPI.setConfig({scale: 1.5})', true), 3000, null)
+    await new Promise((r) => setTimeout(r, 900))
+    const sb = petWin.getBounds()
+    results.drag.scaleDrag = {
+      resized: sb.width === 480 && sb.height === 480,
+      cornerAnchored: Math.abs((sb.x + sb.width) - (posBeforeScale[0] + 320)) <= 3 && Math.abs((sb.y + sb.height) - (posBeforeScale[1] + 320)) <= 3,
+      inScreen: sb.x >= wa.x && sb.y >= wa.y && sb.x + sb.width <= wa.x + wa.width && sb.y + sb.height <= wa.y + wa.height,
+    }
   } catch (err) {
     results.drag = 'FAIL: ' + String((err && err.message) || err)
   }

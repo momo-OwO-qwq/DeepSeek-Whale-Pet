@@ -531,7 +531,6 @@
   function advancePos(x, y) {
     state.posX = x
     state.posY = y
-    root.classList.toggle('wp-left', state.h === 'left')
   }
 
   async function setScale(v) {
@@ -540,14 +539,14 @@
     var oldW = state.winW, oldH = state.winH
     var newW = Math.round(BASE_PX * next)
     var newH = newW
-    // 固定角：右吸附盯右下角，左吸附盯左下角（翻转后鲸鱼贴左）
-    var fixX = state.h === 'left' ? state.posX : state.posX + oldW
+    // 固定鲸鱼右下角（无镜像翻转，锚点唯一）
+    var fixX = state.posX + oldW
     var fixY = state.posY + oldH
     state.scale = next
     root.style.setProperty('--wp-base', newW + 'px')
     state.winW = newW
     state.winH = newH
-    var x = state.h === 'left' ? fixX : fixX - newW
+    var x = fixX - newW
     var y = fixY - newH
     var wa = await api.getWorkArea()
     x = clamp(x, wa.x, wa.x + wa.width - newW)
@@ -587,7 +586,6 @@
       var lx = (e.clientX - r.left) / r.width * 610
       var ly = (e.clientY - r.top) / r.height * 610
       if (lx < 0 || ly < 0 || lx >= 610 || ly >= 610) return false
-      if (state.h === 'left') lx = 610 - lx
       var data = hitCanvas.getContext('2d').getImageData(Math.floor(lx), Math.floor(ly), 1, 1).data
       return data[3] > 10
     } catch (err) {
@@ -677,22 +675,14 @@
   async function finishDrag() {
     var end = await api.dragEnd() // {x, y} 主进程记录的最终窗口位置
     var wa = await api.getWorkArea()
+    // 无吸附/无翻转：自由定位，仅钳制在桌面内（可贴到任意边缘）
     var x = Math.round(end.x), y = Math.round(end.y)
     var w = state.winW, h = state.winH
-    var cx = x + w / 2
-    var cy = y + h / 2
-    var moved = false
-    if (cx < wa.x + wa.width / 4) { state.h = 'left'; x = wa.x; moved = true }
-    else if (cx > wa.x + wa.width * 3 / 4) { state.h = 'right'; x = wa.x + wa.width - w; moved = true }
-    else state.h = null
-    if (cy < wa.y + wa.height / 4) { state.v = 'top'; y = wa.y; moved = true }
-    else if (cy > wa.y + wa.height * 3 / 4) { state.v = 'bottom'; y = wa.y + wa.height - h; moved = true }
-    else state.v = null
     x = clamp(x, wa.x, wa.x + wa.width - w)
     y = clamp(y, wa.y, wa.y + wa.height - h)
     advancePos(x, y)
     await api.setWindowPos(x, y)
-    api.setConfig({ posX: x, posY: y, posH: state.h, posV: state.v })
+    api.setConfig({ posX: x, posY: y })
   }
 
   // 鲸鱼/气泡/菜单按钮上的点击才会生效；透明区域（或不在鲸鱼上）的点按

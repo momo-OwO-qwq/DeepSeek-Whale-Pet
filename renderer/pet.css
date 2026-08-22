@@ -29,7 +29,6 @@ html, body {
   transform: none;
   transition: transform .3s ease;
 }
-.wp-root.wp-left { transform: scaleX(-1); }
 .wp-root.wp-dragging { cursor: grabbing; transition: none; }
 
 /* 呼吸动画层：静止时鲸鱼轻微缩放（0.98~1.02，周期 2s） */
@@ -144,7 +143,6 @@ html, body {
   user-select: none;
   object-fit: contain;
 }
-.wp-root.wp-left .wp-gif { transform: translate(-50%, -50%) scaleX(-1); }
 .wp-bubble.wp-bubble-open .wp-gif { opacity: 1; }
 
 .wp-text {
@@ -161,7 +159,6 @@ html, body {
   transition: opacity .16s ease;
 }
 .wp-bubble.wp-bubble-open .wp-text { opacity: 1; transition: opacity .16s ease .36s; }
-.wp-root.wp-left .wp-text { transform: translate(-50%, -50%) scaleX(-1); }
 
 .wp-label { font-size: calc(var(--wp-u) * 66); font-weight: 600; letter-spacing: .06em; }
 .wp-amount { font-size: calc(var(--wp-u) * 128); font-weight: 800; line-height: 1.05; }

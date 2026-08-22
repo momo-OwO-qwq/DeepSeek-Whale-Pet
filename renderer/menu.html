@@ -24,19 +24,20 @@
         <div class="wm-fill">
           <div class="wm-inline">
             <input id="wm-apikey" type="password" placeholder="sk-..." autocomplete="off">
-            <button id="wm-apikey-eye" class="wm-mini" title="显示/隐藏">显示</button>
+            <button id="wm-apikey-eye" class="wm-mini" title="显示或隐藏密钥">显示</button>
           </div>
           <div id="wm-apikey-note" class="wm-note"></div>
         </div>
       </label>
+      <div class="wm-note wm-span">用于从 api.deepseek.com 拉取余额；留空则无法显示余额。可用环境变量 DEEPSEEK_API_KEY 代替。</div>
       <label class="wm-row wm-span">
         <span class="wm-label">平台令牌</span>
         <div class="wm-fill">
           <div class="wm-inline">
             <input id="wm-token" type="password" placeholder="Bearer eyJ...（可选）" autocomplete="off">
-            <button id="wm-token-eye" class="wm-mini" title="显示/隐藏">显示</button>
+            <button id="wm-token-eye" class="wm-mini" title="显示或隐藏令牌">显示</button>
           </div>
-          <div class="wm-note">「实时·令牌」模式使用；不填自动回落记账模式</div>
+          <div class="wm-note">仅「实时·令牌」用量模式需要（DeepSeek 平台网页会话令牌）；不填时自动使用记账模式。</div>
         </div>
       </label>
       <div class="wm-actions">
@@ -46,100 +47,104 @@
 
     <!-- ================= 数据 ================= -->
     <section class="wm-page" id="page-data" hidden>
+      <label class="wm-row wm-span">
+        <span class="wm-label">用量模式</span>
+        <select id="wm-usage">
+          <option value="ledger">小鲸鱼记账（余额差值，免令牌）</option>
+          <option value="token">实时·令牌（平台接口，峰谷定价）</option>
+        </select>
+      </label>
+      <div class="wm-note wm-span">小鲸鱼记账：本地记录余额下降差值累计今日用量；实时·令牌：按峰谷单价精确换算，需平台令牌。</div>
       <div class="wm-grid">
         <label class="wm-row">
-          <span class="wm-label">用量</span>
-          <select id="wm-usage">
-            <option value="ledger">小鲸鱼记账</option>
-            <option value="token">实时·令牌</option>
-          </select>
-        </label>
-        <label class="wm-row">
-          <span class="wm-label">刷新</span>
+          <span class="wm-label">自动刷新</span>
           <input id="wm-refresh" class="wm-num" type="number" min="5" max="3600" step="1"><span class="wm-unit">秒</span>
         </label>
         <label class="wm-row">
-          <span class="wm-label">阈值</span>
+          <span class="wm-label">低余额提醒</span>
           <input id="wm-threshold" class="wm-num" type="number" min="0" step="0.1"><span class="wm-unit">元</span>
         </label>
         <label class="wm-row">
-          <span class="wm-label">自启</span>
-          <input id="wm-autostart" class="wm-check" type="checkbox" title="开机自启">
+          <span class="wm-label">开机自启</span>
+          <input id="wm-autostart" class="wm-check" type="checkbox" title="登录系统后自动启动小鲸鱼">
         </label>
+        <div class="wm-note">低于该金额时弹通知</div>
       </div>
-      <div id="wm-ledger-note" class="wm-note">小鲸鱼记账：余额差值本地记账（免令牌）；记账文件 ~/.config/whale-pet/usage.json</div>
+      <div id="wm-ledger-note" class="wm-note wm-span">记账文件保存在 ~/.config/whale-pet/usage.json（跨天自动归档最近 30 天）。</div>
     </section>
 
     <!-- ================= 外观 ================= -->
     <section class="wm-page" id="page-look" hidden>
+      <label class="wm-row wm-span">
+        <span class="wm-label">主题</span>
+        <select id="wm-theme">
+          <option value="system">跟随系统</option>
+          <option value="light">浅色</option>
+          <option value="dark">深色</option>
+        </select>
+      </label>
+      <div class="wm-note wm-span">仅影响设置窗口的配色与系统标题栏；鲸鱼本体始终为浅色外观。</div>
+      <label class="wm-row wm-span">
+        <span class="wm-label">鲸鱼大小</span>
+        <input id="wm-scale" class="wm-range" type="range" min="0.6" max="2.5" step="0.1"><span id="wm-scale-v" class="wm-val"></span>
+      </label>
       <div class="wm-grid">
         <label class="wm-row">
-          <span class="wm-label">主题</span>
-          <select id="wm-theme">
-            <option value="system">跟随系统</option>
-            <option value="light">浅色</option>
-            <option value="dark">深色</option>
-          </select>
-        </label>
-        <label class="wm-row">
           <span class="wm-label">气泡</span>
-          <input id="wm-bubble" class="wm-check" type="checkbox" title="点击鲸鱼弹出气泡">
+          <input id="wm-bubble" class="wm-check" type="checkbox" title="点击鲸鱼时弹出气泡">
         </label>
-        <label class="wm-row wm-span">
-          <span class="wm-label">大小</span>
-          <input id="wm-scale" class="wm-range" type="range" min="0.6" max="2.5" step="0.1"><span id="wm-scale-v" class="wm-val"></span>
+        <div class="wm-note">点击鲸鱼时弹出气泡</div>
+        <label class="wm-row">
+          <span class="wm-label">闲置半透明</span>
+          <input id="wm-idlefade" class="wm-check" type="checkbox" title="鼠标离开 3 秒后鲸鱼渐隐">
+        </label>
+        <div class="wm-note">鼠标离开 3 秒后渐隐</div>
+      </div>
+      <label class="wm-row wm-span">
+        <span class="wm-label">峰谷文案风格</span>
+        <select id="wm-peak">
+          <option value="default">默认（空闲时段 / 高峰时段）</option>
+          <option value="liangwen">梁文峰谷</option>
+          <option value="qiangqiang">!?强强?!</option>
+        </select>
+        <input id="wm-peaktext" class="wm-check" type="checkbox" title="气泡中显示当前时段提示">
+        <span class="wm-unit">显示</span>
+      </label>
+      <div class="wm-grid">
+        <label class="wm-row">
+          <span class="wm-label">空闲时段文案</span>
+          <input id="wm-peak-off" class="wm-text" type="text" maxlength="12" placeholder="留空则用上方风格">
         </label>
         <label class="wm-row">
-          <span class="wm-label">闲置</span>
-          <input id="wm-idlefade" class="wm-check" type="checkbox" title="鼠标离开 3 秒后半透明">
-        </label>
-        <label class="wm-row">
-          <span class="wm-label">峰谷词</span>
-          <select id="wm-peak">
-            <option value="default">默认</option>
-            <option value="liangwen">梁文峰谷</option>
-            <option value="qiangqiang">!?强强?!</option>
-          </select>
-        </label>
-        <label class="wm-row">
-          <span class="wm-label">峰谷显</span>
-          <input id="wm-peaktext" class="wm-check" type="checkbox" title="气泡里显示峰谷时段提示">
-        </label>
-        <label class="wm-row">
-          <span class="wm-label">空闲词</span>
-          <input id="wm-peak-off" class="wm-text" type="text" maxlength="12" placeholder="留空=内置">
-        </label>
-        <label class="wm-row">
-          <span class="wm-label">高峰词</span>
-          <input id="wm-peak-on" class="wm-text" type="text" maxlength="12" placeholder="留空=内置">
+          <span class="wm-label">高峰时段文案</span>
+          <input id="wm-peak-on" class="wm-text" type="text" maxlength="12" placeholder="留空则用上方风格">
         </label>
       </div>
+      <div class="wm-note wm-span">高峰为每日 9:00–12:00、14:00–18:00（北京时间）；自定义文案各限 12 字符，留空则跟随上方风格。</div>
     </section>
 
     <!-- ================= 文案 ================= -->
     <section class="wm-page" id="page-text" hidden>
-      <div class="wm-grid">
-        <label class="wm-row wm-span">
-          <span class="wm-label">充足</span>
-          <input id="wm-text-ok" class="wm-text" type="text" maxlength="20" placeholder="余额充足时气泡第一行（限 20 字符）">
-          <input id="wm-color-ok" type="color" title="文案颜色">
-          <button id="wm-color-ok-reset" class="wm-mini" title="恢复默认颜色">默认</button>
-        </label>
-        <label class="wm-row wm-span">
-          <span class="wm-label">预警</span>
-          <input id="wm-text-low" class="wm-text" type="text" maxlength="20" placeholder="预警状态气泡第一行（限 20 字符）">
-          <input id="wm-color-low" type="color" title="文案颜色">
-          <button id="wm-color-low-reset" class="wm-mini" title="恢复默认颜色">默认</button>
-        </label>
-      </div>
-      <div class="wm-note">两种状态分别设置气泡第一行文字与颜色；文字超长自动截断</div>
+      <label class="wm-row wm-span">
+        <span class="wm-label">余额充足时</span>
+        <input id="wm-text-ok" class="wm-text" type="text" maxlength="20" placeholder="气泡第一行文字（限 20 字符）">
+        <input id="wm-color-ok" type="color" title="文字颜色">
+        <button id="wm-color-ok-reset" class="wm-mini" title="恢复默认颜色">默认颜色</button>
+      </label>
+      <label class="wm-row wm-span">
+        <span class="wm-label">余额预警时</span>
+        <input id="wm-text-low" class="wm-text" type="text" maxlength="20" placeholder="气泡第一行文字（限 20 字符）">
+        <input id="wm-color-low" type="color" title="文字颜色">
+        <button id="wm-color-low-reset" class="wm-mini" title="恢复默认颜色">默认颜色</button>
+      </label>
+      <div class="wm-note wm-span">分别设置「余额充足」与「低于预警阈值」两种状态下气泡第一行文字与颜色；超长文字将自动截断。</div>
     </section>
 
     <!-- ================= 音效 ================= -->
     <section class="wm-page" id="page-sound" hidden>
       <div class="wm-grid">
         <label class="wm-row">
-          <span class="wm-label">音效集</span>
+          <span class="wm-label">音效方案</span>
           <select id="wm-sound">
             <option value="duck">小黄鸭</option>
             <option value="fx1">音效1</option>
@@ -150,44 +155,45 @@
           <input id="wm-vol" class="wm-range" type="range" min="0" max="1" step="0.05"><span id="wm-vol-v" class="wm-val"></span>
         </label>
         <div class="wm-row">
-          <span class="wm-label">按压</span>
+          <span class="wm-label">按压音效</span>
           <button id="wm-press-pick" class="wm-btn">上传音源</button>
-          <button id="wm-press-reset" class="wm-btn wm-btn-mini">默认</button>
+          <button id="wm-press-reset" class="wm-btn wm-btn-mini">恢复默认</button>
         </div>
         <div class="wm-row">
-          <span class="wm-label">松手</span>
+          <span class="wm-label">松手音效</span>
           <button id="wm-release-pick" class="wm-btn">上传音源</button>
-          <button id="wm-release-reset" class="wm-btn wm-btn-mini">默认</button>
+          <button id="wm-release-reset" class="wm-btn wm-btn-mini">恢复默认</button>
         </div>
       </div>
-      <div id="wm-sound-note" class="wm-note">自定义音效优先级高于音效集；音源保存在 ~/.config/whale-pet/sounds/</div>
+      <div id="wm-sound-note" class="wm-note">上传的音源会复制到 ~/.config/whale-pet/sounds/ 并优先于音效方案；音量调至 0 即静音。</div>
     </section>
 
     <!-- ================= 图片与台词 ================= -->
     <section class="wm-page" id="page-media" hidden>
+      <label class="wm-row wm-span">
+        <span class="wm-label">预警换图</span>
+        <input id="wm-alertimage" class="wm-check" type="checkbox" title="余额低于阈值时自动切换为预警图">
+        <span class="wm-unit">余额低于阈值时自动切换为下方预警图</span>
+      </label>
       <div class="wm-grid">
-        <label class="wm-row">
-          <span class="wm-label">预警换</span>
-          <input id="wm-alertimage" class="wm-check" type="checkbox" title="余额低于阈值时切换预警图（默认关闭）">
-        </label>
         <div class="wm-row">
           <span class="wm-label">主图</span>
-          <button id="wm-main-pick" class="wm-btn">上传</button>
-          <button id="wm-main-reset" class="wm-btn wm-btn-mini">默认</button>
+          <button id="wm-main-pick" class="wm-btn">上传图片</button>
+          <button id="wm-main-reset" class="wm-btn wm-btn-mini">恢复默认</button>
         </div>
         <div class="wm-row">
           <span class="wm-label">预警图</span>
-          <button id="wm-alert-pick" class="wm-btn">上传</button>
-          <button id="wm-alert-reset" class="wm-btn wm-btn-mini">默认</button>
-        </div>
-        <div class="wm-row">
-          <span class="wm-label">随机词</span>
-          <button id="wm-custom-reload" class="wm-btn">重载</button>
+          <button id="wm-alert-pick" class="wm-btn">上传图片</button>
+          <button id="wm-alert-reset" class="wm-btn wm-btn-mini">恢复默认</button>
         </div>
       </div>
-      <div id="wm-main-note" class="wm-note">主图：默认 assets/DSniang1.png</div>
-      <div id="wm-alert-note" class="wm-note">预警图：默认 assets/DSniang02.png（与主图独立）</div>
-      <div id="wm-custom-note" class="wm-note">随机台词/动图池：编辑 ~/.config/whale-pet/lines.json（首次自动生成，含全部默认值）后点「重载」</div>
+      <div id="wm-main-note" class="wm-note">主图：默认 assets/DSniang1.png（上传后复制到配置目录，随系统保留）</div>
+      <div id="wm-alert-note" class="wm-note">预警图：默认 assets/DSniang02.png（与主图相互独立，互不影响）</div>
+      <div class="wm-row wm-span">
+        <span class="wm-label">随机台词</span>
+        <button id="wm-custom-reload" class="wm-btn">重新载入台词文件</button>
+      </div>
+      <div id="wm-custom-note" class="wm-note">台词池保存在 ~/.config/whale-pet/lines.json（首次自动生成、含全部默认值），编辑后点上方按钮生效。</div>
     </section>
 
     <div class="wm-foot">

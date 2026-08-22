@@ -139,8 +139,8 @@ html, body {
 .wm-row input::placeholder { color: var(--wm-hint); opacity: .8; }
 .wm-row input[type="number"] { flex: 0 0 56px; width: 56px; }
 
-.wm-grid .wm-label { flex: 0 0 auto; min-width: 46px; }
-.wm-label { flex: 0 0 62px; }
+.wm-grid .wm-label { flex: 0 0 auto; min-width: 74px; }
+.wm-label { flex: 0 0 84px; }
 
 .wm-fill { flex: 1; min-width: 0; }
 .wm-inline { display: flex; gap: 4px; }
