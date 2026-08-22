@@ -30,6 +30,7 @@
     idleFade: $('wm-idlefade'),
     refresh: $('wm-refresh'),
     threshold: $('wm-threshold'),
+    alertImage: $('wm-alertimage'),
     autostart: $('wm-autostart'),
     refreshNow: $('wm-refresh-now'),
   }
@@ -55,6 +56,7 @@
     els.idleFade.checked = cfg.idleFade !== false
     els.refresh.value = String(cfg.refreshInterval || 60)
     els.threshold.value = String(cfg.lowBalanceThreshold != null ? cfg.lowBalanceThreshold : 10)
+    els.alertImage.checked = cfg.alertImage === true
     els.autostart.checked = !!cfg.autostart
     if (cfg.apiKeySource === 'env') {
       els.apiKeyNote.textContent = '当前使用环境变量 DEEPSEEK_API_KEY（此处可覆盖文件配置）'
@@ -157,6 +159,9 @@
     if (!isFinite(v) || v < 0) v = 10
     els.threshold.value = String(v)
     api.setConfig({ lowBalanceThreshold: v })
+  })
+  els.alertImage.addEventListener('change', function () {
+    api.setConfig({ alertImage: els.alertImage.checked })
   })
 
   // ---------- 立即刷新 ----------

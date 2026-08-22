@@ -203,6 +203,16 @@ test('config: 消毒 / 原子保存 / 环境变量覆盖', () => {
   assert.strictEqual(s.peakMode, 'default')
   assert.strictEqual(s.posH, null)
 
+  // 预警换图：默认关闭；开启后路径可自定义
+  const sa = config.sanitize({})
+  assert.strictEqual(sa.alertImage, false, '预警换图默认关闭')
+  assert.strictEqual(sa.alertImgPath, 'assets/DSniang02.png')
+  const sa2 = config.sanitize({ alertImage: true, alertImgPath: 'assets/warn.png' })
+  assert.strictEqual(sa2.alertImage, true)
+  assert.strictEqual(sa2.alertImgPath, 'assets/warn.png')
+  const sa3 = config.sanitize({ alertImage: true, alertImgPath: '   ' })
+  assert.strictEqual(sa3.alertImgPath, 'assets/DSniang02.png', '空路径回退默认')
+
   // 保存 + 读回
   const saved = config.save({ apiKey: 'sk-123', scale: 1.7, volume: 0.5 })
   assert.strictEqual(saved.apiKey, 'sk-123')

@@ -13,7 +13,8 @@
 | 目标 | 验收 |
 |---|---|
 | 独立运行 | 不依赖 DSH、浏览器、任何凭证服务；`npm start` 即用 |
-| 透明置顶 | 鲸鱼浮动于桌面，透明区域点击穿透到桌面图标/窗口 |
+| 透明置顶 | 鲸鱼浮动于桌面，无边框无阴影，始终置顶 |
+| 点击可靠 | 真实鼠标点击鲸鱼必然响应（气泡/刷新/拖拽），不依赖 OS 级穿透 |
 | 余额监控 | 60s 自动刷新 + 点击手动；数字滚动动画；失败沿用最近余额 |
 | 今日已用 | 记账模式（免令牌）/ 令牌模式（峰谷定价）与原版一致 |
 | 桌宠交互 | 拖拽吸附、镜像翻转、按压 Q 弹、音效、随机台词、汉堡菜单 |
@@ -50,7 +51,7 @@
 │ preload.js → window.whaleAPI     │   │ preload.js → window.whaleAPI       │
 │ 渲染进程 renderer/pet.*（桌宠）   │   │ 渲染进程 renderer/menu.*（设置）    │
 │   SVG 气泡 / 鲸鱼 PNG / 音效       │   │  表单控件 → setConfig → 广播生效   │
-│   pointer 拖拽 + 吸附 + 穿透命中   │   │  Esc / blur 自动收起               │
+│   pointer 拖拽 + 吸附 + 命中忽略   │   │  Esc / blur 自动收起               │
 └──────────────────────────────────┘   └────────────────────────────────────┘
 ```
 
@@ -60,18 +61,19 @@
 
 ## 4. 关键实现
 
-### 4.1 透明置顶 + 点击穿透
+### 4.1 透明置顶 + 点击命中（重要：一次真实 bug 的修复记录）
 
 ```js
 petWin = new BrowserWindow({ transparent: true, frame: false, alwaysOnTop: true,
-  skipTaskbar: true, focusable: false, hasShadow: false, backgroundColor: '#00000000' })
-petWin.setAlwaysOnTop(true, 'floating')
+  skipTaskbar: true, hasShadow: false, backgroundColor: '#00000000' })
+petWin.setAlwaysOnTop(true, 'screen-saver')
 petWin.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
 ```
 
-- `focusable: false`：鲸鱼永远不抢用户焦点。
-- **点击穿透**：渲染进程在 `pointermove` 中做 **画布 alpha 命中测试**（拉伸 610×610 与鲸鱼素材对齐；左吸附时水平镜像坐标），命中鲸鱼或已展开的气泡 → `pet:hover {hit:true}`；否则 `pet:hover {hit:false}`。主进程据此 `setIgnoreMouseEvents(!hit, { forward: true })`——忽略时鼠标事件仍前送到渲染进程，从而能在鼠标移回鲸鱼时重新接管。透明区域点击直接落到桌面。
-- Wayland 会话强制 `--ozone-platform=x11`（XWayland），保证 `setPosition` 可用；`ELECTRON_OZONE_PLATFORM_HINT` 可覆盖。
+- **首版实现**尝试了 OS 级点击穿透：渲染进程做画布 alpha 命中测试（610×610 与素材对齐，左吸附镜像坐标），命中后经 IPC 让主进程 `setIgnoreMouseEvents(false)`，未命中 `setIgnoreMouseEvents(true, {forward:true})`。
+- **实测失败**（用户报告「点击小鲸鱼没有反应」+ xdotool 真实点击复现）：在该 Linux/XWayland + Electron 34 环境下，`forward` 事件转发**不会**触发（窗口进入 ignore 后永远收不到 mousemove，无法自我唤醒）；且 **`screen.getCursorScreenPoint()` 是事件缓存的**——光标在受忽略/非当前窗口上时返回过期坐标（xdotool 移动指针后 `xdotool getmouselocation` 已变，而 App 读到的坐标不变），因此「主进程轮询光标」的兜底方案同样失效。两条通道全部被验证为不可靠（用独立探针程序逐项证明）。
+- **最终方案（与参考实现 deepseek-whale-pet 一致）**：**完全不做 OS 级穿透**——窗口始终接收鼠标事件；渲染进程用 `isWhaleHit` 画布 alpha 判定，鲸鱼本体（及气泡/菜单按钮）之外的点按直接忽略。代价是窗口矩形内的透明区域会吃掉点击，换来的是**真实鼠标点击 100% 可靠**，并用 xdotool 真实点击自动化验证通过（修复前 BUBBLE=false，修复后 BUBBLE=true 连续 14 次探针采样）。
+- `focusable: false` 也被移除：与参考实现一致的最小窗口属性集，避免个别 WM 下的输入怪癖。
 
 ### 4.2 拖拽 + 吸附
 
@@ -125,6 +127,13 @@ petWin.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
 
 `<audio>` 加载 `assets/Ya1/Ya2.mp3`（duck）或 `D1/D2.mp3`（fx1）；按压播放 press，松手在 press 结尾前 100ms 或结束后播放 release（与原版时序一致）；`autoplayPolicy: no-user-gesture-required` 免手势门槛；音量 0 即静音。
 
+### 4.7 预警换图（默认关闭）
+
+- 配置：`alertImage: false`（默认）+ `alertImgPath: 'assets/DSniang02.png'`（相对应用根目录或绝对路径）。
+- 触发：`alertImage === true` 且余额正常（status ok）且 `0 <= 余额 < lowBalanceThreshold`。
+- 行为：`img.src` 切换为预警图并重建 alpha 命中探针（`setupHitTest(src)`，探针加载期间放宽为全命中，保证可点击）；恢复阈值以上后换回 `DSniang1.png`。同时显示红色 `!` 徽标，与 🥺 情绪表情叠加提示。
+- 判定在每次 `render()` 中执行（含余额变化、模式切换、配置广播），与低余额通知共用阈值语义。
+
 ## 5. IPC 协议（preload → 主进程）
 
 | 通道 | 类型 | 说明 |
@@ -134,9 +143,10 @@ petWin.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
 | `window:get-workarea` | invoke | 鲸鱼所在显示器的 workArea |
 | `window:resize` / `window:set-pos` | send | 改窗口尺寸/位置（resize 后重申置顶，防部分 WM 掉层） |
 | `drag:start` / `drag:end` | invoke | 主进程光标轮询拖拽；end 返回最终位置 |
-| `pet:hover` | send | 点击穿透命中状态 |
 | `menu:open` / `menu:close` | send | 打开（鲸鱼旁、屏幕内钳制）/收起设置窗 |
 | `config:changed` / `whale:refresh` | 事件 | 广播回渲染进程 |
+
+> 注：初版包含 `pet:hover`（点击穿透命中）通道，因 Linux/XWayland 下不可靠已移除，见 §4.1。
 
 ## 6. 安全
 
@@ -148,8 +158,9 @@ petWin.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
 
 ## 7. 验证
 
-- **单元测试**（`npm test`，纯 Node 无网络）：峰谷边界、定价表、`pickBalanceInfo` 优先级、token→金额换算、`fetchBalance` 重试/4xx 不重试/超时瞬态、记账累计/充值不扣减/跨天归档、配置消毒/0600/环境变量覆盖 —— 全部通过。
+- **单元测试**（`npm test`，纯 Node 无网络）：峰谷边界、定价表、`pickBalanceInfo` 优先级、token→金额换算、`fetchBalance` 重试/4xx 不重试/超时瞬态、记账累计/充值不扣减/跨天归档、配置消毒/0600/环境变量覆盖/预警换图字段 —— 全部通过。
 - **冒烟测试**（`npm run smoke`，真实启动）：截图验证渲染（鲸鱼右下角 90% 覆盖、点击后白色气泡出现）、模拟点击（气泡弹出）、模拟拖拽（落点与期望钳制位置误差 < 2px）、真实调用余额接口（无 Key 返回 NO_KEY、坏 Key 返回 HTTP 401）—— 全部通过。
+- **真实鼠标点击验证**（xdotool，详见 §4.1）：修复前（OS 级穿透方案）点击后气泡不出现（BUBBLE=false）；修复后（整窗接收事件方案）真实点击立即弹出气泡（连续 14 次探针采样 BUBBLE=true）。
 - 手动清单见 README「验证」章节。
 
 ## 8. 扩展建议

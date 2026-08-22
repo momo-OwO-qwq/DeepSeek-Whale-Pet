@@ -3,8 +3,10 @@
  * 移植自 DSH 原版 WIDGET_JS（lib/index.js 内嵌脚本）并适配 Linux 独立版：
  *   - 余额/配置/位置全部走 preload 桥（window.whaleAPI），不再有 /dsh-whale/* 路由
  *   - 窗口拖拽由主进程轮询光标移动窗口本体；渲染进程负责吸附与位置记忆
- *   - 新增：呼吸动画（CSS）、情绪表情、闲置半透明、透明像素点击穿透
+ *   - 新增：呼吸动画（CSS）、情绪表情、闲置半透明、预警换图
  *   - 移除：每轮消耗胶囊、滚动条避让（桌面无滚动条）、页面内汉堡菜单（改为独立设置窗口）
+ *   - 点击：窗口始终接收事件（不做 OS 级穿透，Linux/XWayland 下不可靠），
+ *     鲸鱼本体（isWhaleHit 画布 alpha）之外的点按直接忽略
  * ========================================================================== */
 (function () {
   'use strict'
@@ -38,10 +40,17 @@
   img.src = '../assets/DSniang1.png'
   img.alt = 'DeepSeek 余额'
   img.draggable = false
-  breath.appendChild(img)
 
   var moodEl = document.createElement('div')
   moodEl.className = 'wp-mood'
+
+  // 预警图片徽标（默认隐藏；达到预警额度时显示）
+  var alertBadge = document.createElement('div')
+  alertBadge.className = 'wp-alert-badge'
+  alertBadge.textContent = '!'
+
+  breath.appendChild(img)
+  breath.appendChild(alertBadge)
 
   var bubbleBox = document.createElement('div')
   bubbleBox.className = 'wp-bubble'
@@ -132,7 +141,9 @@
   var idleFade = true
   var refreshIntervalMs = 60000
   var threshold = 10
-  var lastHit = null
+  var alertImage = false
+  var alertImgPath = 'assets/DSniang02.png'
+  var currentImgSrc = ''
   var lastPointerMoveAt = Date.now()
 
   function clamp(v, lo, hi) { return v < lo ? lo : (v > hi ? hi : v) }
@@ -371,9 +382,36 @@
     var mood = ''
     if (state.status === 'loading' && state.balance === null) mood = '💤'
     else if (state.status === 'error') mood = '😭'
-    else if (state.status === 'ok' && state.balance !== null && isFinite(state.balance) && state.balance >= 0 && state.balance < threshold) mood = '🥺'
+    else if (isLowBalance()) mood = '🥺'
     if (moodEl.textContent !== mood) moodEl.textContent = mood
     moodEl.classList.toggle('wp-mood-show', !!mood)
+    updateAlertImage()
+  }
+
+  function isLowBalance() {
+    return state.status === 'ok' && state.balance !== null && isFinite(state.balance) &&
+      state.balance >= 0 && state.balance < threshold
+  }
+
+  function resolveAlertImgPath(p) {
+    var s = String(p || '').trim()
+    if (!s) return '../assets/DSniang1.png'
+    // http/https/file 或绝对路径原样使用（file:// 前缀由渲染器支持）
+    if (/^(https?:|file:)/.test(s) || s.charAt(0) === '/') return s
+    // 相对路径基于应用根目录：renderer/pet.html 位于 renderer/ 下，前缀 ../assets/
+    return s.indexOf('assets/') === 0 ? '../' + s : '../' + s
+  }
+
+  // 预警换图：启用 && 余额低于阈值 → 切换为预警图片；恢复 → 换回默认鲸鱼
+  function updateAlertImage() {
+    var low = alertImage && isLowBalance()
+    var want = low ? resolveAlertImgPath(alertImgPath) : '../assets/DSniang1.png'
+    if (want !== currentImgSrc) {
+      currentImgSrc = want
+      img.src = want
+      setupHitTest(want)
+    }
+    alertBadge.classList.toggle('wp-alert-badge-show', low)
   }
 
   async function refresh(manual) {
@@ -480,20 +518,21 @@
   // ------------------------------------------------------------- 命中测试
   var hitCanvas = null
   var hitReady = false
-  function setupHitTest() {
+  function setupHitTest(src) {
     try {
-      hitCanvas = document.createElement('canvas')
-      hitCanvas.width = 610
-      hitCanvas.height = 610
       var probe = new Image()
+      hitReady = false // 探针重载期间：命中测试放宽为「全命中」，保证可点击
       probe.onload = function () {
         try {
+          hitCanvas = hitCanvas || document.createElement('canvas')
+          hitCanvas.width = 610
+          hitCanvas.height = 610
           hitCanvas.getContext('2d').drawImage(probe, 0, 0, 610, 610)
           hitReady = true
         } catch (err) {}
       }
-      probe.onerror = function () {}
-      probe.src = '../assets/DSniang1.png'
+      probe.onerror = function () { /* hitReady 保持 false → 全命中，可点击优先 */ }
+      probe.src = src || '../assets/DSniang1.png'
     } catch (err) {}
   }
 
@@ -513,21 +552,13 @@
     }
   }
 
-  function bubbleHit(e) {
-    if (!bubbleShown) return false
-    try {
-      var el = document.elementFromPoint(e.clientX, e.clientY)
-      return !!(el && el.closest && el.closest('.wp-bubble'))
-    } catch (err) { return false }
-  }
-
   // ------------------------------------------------------------- 指针交互
   function onDocPointerDown(e) {
     if (e.target && e.target.closest && (e.target.closest('.wp-menu-btn') || e.target.closest('.wp-bubble'))) return
     if (e.button !== 0 && e.pointerType === 'mouse') return
     if (!isWhaleHit(e)) return
     try { e.preventDefault() } catch (err) {}
-    api.closeMenu() // 鲸鱼无法夺焦（focusable:false），点击时主动收起设置窗口
+    api.closeMenu() // 点击鲸鱼时主动收起设置窗口
     var rect = root.getBoundingClientRect()
     drag = {
       active: true,
@@ -559,12 +590,7 @@
       if (dx * dx + dy * dy >= CLICK_SQ) drag.moved = true
       return
     }
-    // 悬停命中 → 窗口点击穿透开关
-    var hit = isWhaleHit(e) || bubbleHit(e)
-    if (hit !== lastHit) {
-      lastHit = hit
-      api.setHoverHit(hit)
-    }
+    // 悬停在鲸鱼上 → 显示菜单按钮 + 抓取光标
     var over = isWhaleHit(e)
     menuBtn.classList.toggle('wp-menu-btn-visible', over)
     setWidgetCursor(over ? 'grab' : '')
@@ -620,13 +646,14 @@
     api.setConfig({ posX: x, posY: y, posH: state.h, posV: state.v })
   }
 
+  // 鲸鱼/气泡/菜单按钮上的点击才会生效；透明区域（或不在鲸鱼上）的点按
+  // 直接忽略（窗口始终接收事件，不做不可靠的 setIgnoreMouseEvents 穿透）。
   document.addEventListener('pointerdown', onDocPointerDown, true)
   document.addEventListener('pointermove', onDocPointerMove, true)
   document.addEventListener('contextmenu', function (e) {
-    if (isWhaleHit(e)) {
-      e.preventDefault()
-      api.openMenu()
-    }
+    // 无边框窗口默认有 Chromium 右键菜单，先全局禁用
+    try { e.preventDefault() } catch (err) {}
+    if (isWhaleHit(e)) api.openMenu()
   })
 
   var widgetCursor = ''
@@ -740,6 +767,8 @@
     soundVol = typeof c.volume === 'number' ? c.volume : 0.8
     soundOn = soundVol > 0
     threshold = typeof c.lowBalanceThreshold === 'number' ? c.lowBalanceThreshold : 10
+    alertImage = c.alertImage === true
+    if (typeof c.alertImgPath === 'string' && c.alertImgPath.trim()) alertImgPath = c.alertImgPath.trim()
     var interval = Math.round((typeof c.refreshInterval === 'number' ? c.refreshInterval : 60) * 1000)
     if (interval !== refreshIntervalMs) {
       refreshIntervalMs = interval
@@ -759,7 +788,6 @@
 
   // ------------------------------------------------------------- 启动
   async function init() {
-    api.setHoverHit(false)
     var c = await api.getConfig()
     state.scale = c.scale || 1
     root.style.setProperty('--wp-base', (BASE_PX * state.scale) + 'px')

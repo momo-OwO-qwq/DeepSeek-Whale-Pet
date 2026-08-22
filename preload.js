@@ -18,8 +18,6 @@ contextBridge.exposeInMainWorld('whaleAPI', {
   // 拖拽：主进程轮询光标移动窗口，dragEnd 返回最终窗口位置
   dragStart: (offsetX, offsetY) => ipcRenderer.invoke('drag:start', { offsetX, offsetY }),
   dragEnd: () => ipcRenderer.invoke('drag:end'),
-  // 透明像素点击穿透：主进程 setIgnoreMouseEvents
-  setHoverHit: (hit) => ipcRenderer.send('pet:hover', { hit }),
   // 设置窗口
   openMenu: () => ipcRenderer.send('menu:open'),
   closeMenu: () => ipcRenderer.send('menu:close'),

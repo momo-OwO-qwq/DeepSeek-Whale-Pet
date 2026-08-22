@@ -30,7 +30,6 @@ let tray = null
 let balanceService = null
 let dragState = null
 let dragTimer = null
-let ignoreMouse = false
 let lastLowNotifyAt = 0
 
 // ------------------------------- 单实例 ------------------------------------
@@ -98,7 +97,6 @@ function createPetWindow() {
     resizable: false,
     movable: false,
     skipTaskbar: true,
-    focusable: false,
     show: false,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
@@ -110,7 +108,7 @@ function createPetWindow() {
       spellcheck: false,
     },
   })
-  petWin.setAlwaysOnTop(true, 'floating')
+  petWin.setAlwaysOnTop(true, 'screen-saver')
   petWin.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
   petWin.loadFile(path.join(__dirname, 'renderer', 'pet.html'))
   petWin.once('ready-to-show', () => {
@@ -307,14 +305,6 @@ function clampNum(v, lo, hi) {
   return Math.min(Math.max(v, lo), Math.max(lo, hi))
 }
 
-function setIgnore(ignore) {
-  if (!petWin || petWin.isDestroyed() || ignoreMouse === ignore) return
-  ignoreMouse = ignore
-  try {
-    petWin.setIgnoreMouseEvents(ignore, { forward: true })
-  } catch (err) { /* ignore */ }
-}
-
 async function getWorkAreaForPet() {
   const b = (petWin && !petWin.isDestroyed()) ? petWin.getBounds() : null
   const wa = b ? screen.getDisplayMatching(b).workArea : screen.getPrimaryDisplay().workArea
@@ -374,7 +364,6 @@ function registerIpc() {
       lastPos: null,
       startedAt: Date.now(),
     }
-    setIgnore(false) // 拖拽期间必须保持可点击
     if (dragTimer) clearInterval(dragTimer)
     // 超出窗口边界的 pointermove 不会到达渲染进程，因此在主进程按 16ms 轮询跟手
     dragTimer = setInterval(() => {
@@ -407,10 +396,11 @@ function registerIpc() {
   })
 
   // ---------- 透明像素点击穿透 ----------
-  ipcMain.on('pet:hover', (e, msg) => {
-    if (dragState) return
-    setIgnore(!(msg && msg.hit))
-  })
+  // 注意：不做 setIgnoreMouseEvents —— Linux/XWayland 下其事件转发与
+  // screen.getCursorScreenPoint() 均不可靠（转发不触发、光标为事件缓存），
+  // 曾导致真实点击全部穿透到桌面。本版与参考实现（deepseek-whale-pet）
+  // 保持一致：整个窗口始终接收事件，鲸鱼本体外的点击由渲染进程忽略
+  // （isWhaleHit 判定），实际交互区域只保留鲸鱼/气泡/菜单按钮覆盖区。
 
   // ---------- 设置窗口 ----------
   ipcMain.on('menu:open', () => openMenu())
