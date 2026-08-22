@@ -1,109 +1,113 @@
-/* 设置窗口样式：分区卡片布局（html[data-theme] 切换 浅色/深色） */
+/* 设置窗口（系统原生窗口 + Tab 标签页）：html[data-theme] 切换 浅色/深色 */
 :root {
-  --wm-card-bg: rgba(255, 255, 255, .97);
+  --wm-page-bg: #f5f6fa;
+  --wm-card-bg: #fff;
   --wm-fg: #203170;
-  --wm-border: rgba(32, 49, 112, .35);
+  --wm-border: rgba(32, 49, 112, .25);
   --wm-input-fg: #203170;
   --wm-input-bg: #fff;
+  --wm-select-bg: #fff;
   --wm-input-accent: rgba(32, 49, 112, .08);
-  --wm-hint: #9fb0d9;
+  --wm-hint: #8a94b8;
   --wm-accent: #203170;
   --wm-accent-hover: #2c4390;
   --wm-btn-primary-fg: #fff;
-  --wm-sec-fg: #536ba9;
+  --wm-tab-fg: #536ba9;
+  --wm-tab-bg: transparent;
+  --wm-tab-on-bg: #fff;
   color-scheme: light;
 }
 html[data-theme="dark"] {
-  --wm-card-bg: rgba(30, 34, 48, .97);
+  --wm-page-bg: #1e222f;
+  --wm-card-bg: #262b3d;
   --wm-fg: #c7d0ee;
-  --wm-border: rgba(205, 214, 244, .3);
+  --wm-border: rgba(205, 214, 244, .28);
   --wm-input-fg: #e6e9f5;
-  --wm-input-bg: rgba(255, 255, 255, .07);
-  --wm-input-accent: rgba(255, 255, 255, .12);
+  --wm-input-bg: #2e3448;
+  --wm-select-bg: #2e3448;
+  --wm-input-accent: rgba(255, 255, 255, .10);
   --wm-hint: #8a93b8;
   --wm-accent: #89b4fa;
   --wm-accent-hover: #a4c7ff;
   --wm-btn-primary-fg: #1e2230;
-  --wm-sec-fg: #89b4fa;
+  --wm-tab-fg: #9aa5c9;
+  --wm-tab-bg: transparent;
+  --wm-tab-on-bg: #2e3448;
   color-scheme: dark;
 }
+
+* { box-sizing: border-box; }
 
 html, body {
   margin: 0;
   padding: 0;
-  background: transparent;
+  height: 100%;
   overflow: hidden;
+  background: var(--wm-page-bg);
   user-select: none;
   -webkit-user-select: none;
   font-family: system-ui, "Noto Sans CJK SC", sans-serif;
+  font-size: 13px;
   color: var(--wm-fg);
 }
 
-.wm-card {
-  position: absolute;
-  inset: 8px;
-  background: var(--wm-card-bg);
-  border: 1px solid var(--wm-border);
-  border-radius: 12px;
-  padding: 10px 14px 10px;
-  box-shadow: 0 6px 18px rgba(0, 0, 0, .18);
-  overflow-y: auto;
-  box-sizing: border-box;
-}
-
-.wm-title {
+/* ---------- Tab 标签栏 ---------- */
+.wm-tabs {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  font-size: 14px;
-  font-weight: 700;
-  margin-bottom: 2px;
-  color: var(--wm-fg);
+  gap: 2px;
+  padding: 8px 10px 0;
+  background: var(--wm-page-bg);
 }
-
-.wm-x {
-  border: none;
-  background: transparent;
-  color: var(--wm-fg);
-  font-size: 18px;
-  line-height: 1;
+.wm-tab {
+  flex: 1;
+  border: 1px solid var(--wm-border);
+  border-bottom: none;
+  border-radius: 8px 8px 0 0;
+  background: var(--wm-tab-bg);
+  color: var(--wm-tab-fg);
+  font-size: 12.5px;
+  padding: 7px 0 6px;
   cursor: pointer;
-  padding: 0 4px;
 }
-.wm-x:hover { color: #e0433f; }
-
-/* 分区标题 */
-.wm-sec {
-  margin: 10px 0 2px;
-  padding-top: 6px;
-  border-top: 1px solid var(--wm-border);
-  font-size: 11px;
+.wm-tab:hover { color: var(--wm-accent); }
+.wm-tab-on {
+  background: var(--wm-tab-on-bg);
+  color: var(--wm-accent);
   font-weight: 700;
-  letter-spacing: .08em;
-  color: var(--wm-sec-fg);
 }
-.wm-sec:first-of-type { margin-top: 4px; }
 
-/* 双列网格（短行） */
+/* ---------- 内容区 ---------- */
+.wm-body {
+  height: calc(100% - 46px);
+  display: flex;
+  flex-direction: column;
+  background: var(--wm-card-bg);
+  border-top: 1px solid var(--wm-border);
+  padding: 12px 14px 10px;
+  overflow-y: auto;
+}
+.wm-page { display: block; }
+.wm-page[hidden] { display: none; }
+
 .wm-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
   column-gap: 10px;
-  row-gap: 2px;
+  row-gap: 4px;
   align-items: center;
 }
-.wm-grid .wm-row { margin: 2px 0; }
+.wm-grid .wm-row { margin: 3px 0; }
 .wm-span { grid-column: 1 / -1; }
 
 .wm-row {
   display: flex;
   align-items: center;
   gap: 6px;
-  margin: 6px 0;
-  font-size: 12px;
+  margin: 8px 0;
   white-space: nowrap;
   color: var(--wm-fg);
 }
+/* 表单控件：显式 appearance:none + 实色背景（修复暗色模式下 select 白字白底） */
 .wm-row select,
 .wm-row input[type="password"],
 .wm-row input[type="text"],
@@ -112,21 +116,33 @@ html, body {
   min-width: 0;
   border: 1px solid var(--wm-border);
   border-radius: 6px;
-  padding: 3px 6px;
-  font-size: 12px;
+  padding: 4px 6px;
+  font-size: 12.5px;
   color: var(--wm-input-fg);
   background: var(--wm-input-bg);
   box-sizing: border-box;
 }
+.wm-row select {
+  appearance: none;
+  -webkit-appearance: none;
+  background-color: var(--wm-select-bg);
+  background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%238a94b8' stroke-width='1.6' stroke-linecap='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 7px center;
+  padding-right: 22px;
+  cursor: pointer;
+}
+.wm-row select option {
+  color: var(--wm-input-fg);
+  background: var(--wm-card-bg);
+}
 .wm-row input::placeholder { color: var(--wm-hint); opacity: .8; }
-.wm-row input[type="number"] { flex: 0 0 52px; width: 52px; }
-.wm-row select { padding: 3px 2px; background: var(--wm-input-accent); cursor: pointer; color: var(--wm-input-fg); }
+.wm-row input[type="number"] { flex: 0 0 56px; width: 56px; }
 
-.wm-grid .wm-label { flex: 0 0 auto; min-width: 44px; }
+.wm-grid .wm-label { flex: 0 0 auto; min-width: 46px; }
 .wm-label { flex: 0 0 62px; }
 
-.wm-key .wm-fill,
-.wm-row .wm-fill { flex: 1; min-width: 0; }
+.wm-fill { flex: 1; min-width: 0; }
 .wm-inline { display: flex; gap: 4px; }
 .wm-inline input { flex: 1; min-width: 0; }
 .wm-mini {
@@ -136,29 +152,29 @@ html, body {
   background: var(--wm-input-accent);
   color: var(--wm-fg);
   cursor: pointer;
-  padding: 2px 6px;
+  padding: 3px 7px;
   font-size: 12px;
 }
-.wm-mini:hover { filter: brightness(1.15); }
+.wm-mini:hover { filter: brightness(1.12); }
 .wm-note {
-  margin: 2px 0 4px;
-  font-size: 10.5px;
+  margin: 4px 0 6px;
+  font-size: 11px;
   color: var(--wm-hint);
   white-space: normal;
-  line-height: 1.3;
+  line-height: 1.35;
   word-break: break-all;
 }
 .wm-note.wm-note-ok { color: #2fa24c; }
 .wm-note.wm-note-warn { color: #d98324; }
 
 .wm-range { flex: 1; min-width: 0; accent-color: var(--wm-accent); }
-.wm-val { width: 40px; text-align: right; font-size: 12px; }
+.wm-val { width: 42px; text-align: right; font-size: 12px; }
 .wm-check { width: 16px; height: 16px; accent-color: var(--wm-accent); cursor: pointer; flex: 0 0 auto; }
-.wm-unit { color: var(--wm-hint); }
+.wm-unit { color: var(--wm-hint); font-size: 11px; }
 .wm-row input[type="color"] {
-  flex: 0 0 26px;
-  width: 26px;
-  height: 22px;
+  flex: 0 0 28px;
+  width: 28px;
+  height: 24px;
   border: 1px solid var(--wm-border);
   border-radius: 5px;
   padding: 0;
@@ -166,27 +182,30 @@ html, body {
   cursor: pointer;
 }
 
-.wm-actions { margin-top: 8px; }
+.wm-actions { margin-top: 10px; }
 .wm-btn {
   flex: 1;
   border: 1px solid var(--wm-border);
   border-radius: 8px;
   background: var(--wm-input-accent);
   color: var(--wm-fg);
-  font-size: 12px;
-  padding: 5px 0;
+  font-size: 12.5px;
+  padding: 6px 0;
   cursor: pointer;
   white-space: nowrap;
 }
 .wm-btn:hover { filter: brightness(1.12); }
 .wm-btn-primary { background: var(--wm-accent); color: var(--wm-btn-primary-fg); }
 .wm-btn:disabled { opacity: .5; cursor: not-allowed; }
-.wm-btn-mini { flex: 0 0 auto; padding: 5px 8px; }
+.wm-btn-mini { flex: 0 0 auto; padding: 6px 10px; }
 
 .wm-foot {
-  margin-top: 6px;
-  font-size: 10.5px;
+  margin-top: auto;
+  padding-top: 12px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 11px;
   color: var(--wm-hint);
-  line-height: 1.4;
-  white-space: normal;
 }
+.wm-foot .wm-btn { flex: 0 0 auto; padding: 6px 26px; }

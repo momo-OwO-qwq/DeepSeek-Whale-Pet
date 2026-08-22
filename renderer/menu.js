@@ -1,8 +1,8 @@
 /* ============================================================================
- * 设置窗口（menu.html）—— 渲染进程逻辑
+ * 设置窗口（menu.html，系统原生窗口 + Tab 标签页）—— 渲染进程逻辑
  * 所有控件修改都通过 whaleAPI.setConfig() 持久化；
- * 主进程会把 config:changed 广播给鲸鱼窗口（实时应用）。
- * 自绘主题：跟随系统（matchMedia 监听）/ 浅色 / 深色。
+ * 主进程把 config:changed 广播给鲸鱼窗口（实时应用）。
+ * 主题：跟随系统（matchMedia 监听）/ 浅色 / 深色（与 nativeTheme 联动）。
  * ========================================================================== */
 (function () {
   'use strict'
@@ -12,7 +12,7 @@
   var $ = function (id) { return document.getElementById(id) }
 
   var els = {
-    close: $('wm-close'), done: $('wm-done'),
+    done: $('wm-done'),
     theme: $('wm-theme'),
     apiKey: $('wm-apikey'), apiKeyEye: $('wm-apikey-eye'), apiKeyNote: $('wm-apikey-note'),
     token: $('wm-token'), tokenEye: $('wm-token-eye'),
@@ -33,6 +33,26 @@
     customReload: $('wm-custom-reload'), customNote: $('wm-custom-note'),
     refreshNow: $('wm-refresh-now'),
   }
+
+  // ---------- Tab 切换 ----------
+  var tabs = document.querySelectorAll('.wm-tab')
+  function switchTab(page) {
+    for (var i = 0; i < tabs.length; i++) {
+      var on = tabs[i].getAttribute('data-page') === page
+      tabs[i].classList.toggle('wm-tab-on', on)
+      var el = $('page-' + page)
+      for (var j = 0; j < tabs.length; j++) {
+        $('page-' + tabs[j].getAttribute('data-page')).hidden = true
+      }
+      if (el) el.hidden = false
+    }
+  }
+  for (var i = 0; i < tabs.length; i++) {
+    (function (tab) {
+      tab.addEventListener('click', function () { switchTab(tab.getAttribute('data-page')) })
+    })(tabs[i])
+  }
+  switchTab('account')
 
   var saveTimer = null
   function debounceSave(patch, ms) {
@@ -55,9 +75,8 @@
 
   function imgPathNote(path) {
     if (!path) return ''
-    if (path.indexOf('assets/') === 0) return '当前：' + path + '（内置素材）'
-    var base = path.split('/').pop()
-    return '当前：' + base + '（已复制到配置目录，随系统保留）'
+    if (path.indexOf('assets/') === 0) return path + '（内置素材）'
+    return path.split('/').pop() + '（已复制到配置目录）'
   }
 
   function fill(cfg) {
@@ -87,8 +106,7 @@
     els.volV.textContent = Math.round((cfg.volume != null ? cfg.volume : 0.8) * 100) + '%'
     els.alertImage.checked = cfg.alertImage === true
     els.mainNote.textContent = '主图：' + imgPathNote(cfg.mainImgPath || 'assets/DSniang1.png')
-    els.alertNote.textContent = '预警图：' + imgPathNote(cfg.alertImgPath || 'assets/DSniang02.png')
-    els.soundNote.textContent = '自定义音效优先级高于音效集；音源保存在 ~/.config/whale-pet/sounds/'
+    els.alertNote.textContent = '预警图：' + imgPathNote(cfg.alertImgPath || 'assets/DSniang02.png') + '（与主图独立）'
     if (cfg.apiKeySource === 'env') {
       els.apiKeyNote.textContent = '当前使用环境变量 DEEPSEEK_API_KEY（此处可覆盖文件配置）'
       els.apiKeyNote.className = 'wm-note wm-note-ok'
@@ -122,7 +140,6 @@
 
   // ---------- 关闭 ----------
   function closeWin() { api.closeMenu() }
-  els.close.addEventListener('click', closeWin)
   els.done.addEventListener('click', closeWin)
   document.addEventListener('keydown', function (e) {
     if (e.key === 'Escape') closeWin()
@@ -132,7 +149,7 @@
   function bindSecret(input, eye, patchKey) {
     eye.addEventListener('click', function () {
       input.type = input.type === 'password' ? 'text' : 'password'
-      eye.textContent = input.type === 'password' ? '👁' : '🙈'
+      eye.textContent = input.type === 'password' ? '显示' : '隐藏'
     })
     input.addEventListener('keydown', function (e) {
       if (e.key === 'Enter') input.blur()
@@ -270,14 +287,16 @@
   bindSoundPicker(els.pressPick, els.pressReset, 'press')
   bindSoundPicker(els.releasePick, els.releaseReset, 'release')
 
-  // ---------- 自定义随机台词/动图（custom.json） ----------
+  // ---------- 随机台词池（lines.json） ----------
   els.customReload.addEventListener('click', async function () {
     els.customReload.disabled = true
     try {
       var d = await api.reloadCustom()
-      var n = d && d.lines ? d.lines.length : 0
-      els.customNote.textContent = (n > 0 ? '已载入 ' + n + ' 条自定义台词' + (d.gif ? ' + 自定义动图' : '') : 'custom.json 未配置或为空')
-      els.customNote.className = 'wm-note ' + (n > 0 ? 'wm-note-ok' : '')
+      var groups = d && d.groups ? d.groups.length : 0
+      var n = 0
+      for (var g of (d && d.groups ? d.groups : [])) if (g.lines) n += g.lines.length
+      els.customNote.textContent = (groups > 0 ? '已载入 ' + groups + ' 组（' + n + ' 条台词' + (d.gif ? ' + 自定义动图' : '') + '）' : '无有效配置')
+      els.customNote.className = 'wm-note ' + (groups > 0 ? 'wm-note-ok' : '')
     } finally {
       els.customReload.disabled = false
     }
@@ -285,15 +304,15 @@
 
   // ---------- 立即刷新 ----------
   els.refreshNow.addEventListener('click', async function () {
-    els.refreshNow.textContent = '刷新中…'
+    els.refreshNow.textContent = '刷新中...'
     els.refreshNow.disabled = true
     try {
       var r = await api.getBalance()
-      els.refreshNow.textContent = r && r.ok ? '已刷新 ✓' : '失败 ✗'
+      els.refreshNow.textContent = r && r.ok ? '已刷新' : '失败（检查 API Key）'
     } catch (err) {
-      els.refreshNow.textContent = '失败 ✗'
+      els.refreshNow.textContent = '失败'
     }
-    setTimeout(function () { els.refreshNow.textContent = '立即刷新'; els.refreshNow.disabled = false }, 1200)
+    setTimeout(function () { els.refreshNow.textContent = '立即刷新余额'; els.refreshNow.disabled = false }, 1200)
   })
 
   reload().catch(function (err) { console.error('[menu] load failed', err) })

@@ -75,12 +75,14 @@ petWin.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
 - **最终方案（与参考实现 deepseek-whale-pet 一致）**：**完全不做 OS 级穿透**——窗口始终接收鼠标事件；渲染进程用 `isWhaleHit` 画布 alpha 判定，鲸鱼本体（及气泡/菜单按钮）之外的点按直接忽略。代价是窗口矩形内的透明区域会吃掉点击，换来的是**真实鼠标点击 100% 可靠**，并用 xdotool 真实点击自动化验证通过（修复前 BUBBLE=false，修复后 BUBBLE=true 连续 14 次探针采样）。
 - `focusable: false` 也被移除：与参考实现一致的最小窗口属性集，避免个别 WM 下的输入怪癖。
 
-### 4.2 拖拽 + 吸附（v1.2 重写：movementX 原始增量，无抽搐、可贴边）
+### 4.2 拖拽 + 吸附（v1.3：主进程双通道引擎，真实鼠标可拖、无抽搐）
 
-- 渲染进程 `pointerdown` 记录拖动状态；`setPointerCapture` 保证指针移出窗口仍持续收到 `pointermove`/`pointerup`。
-- **位移增量 = `e.movementX / e.movementY`**（OS 原始位移，窗口位置无关）逐事件累加到目标，rAF 节流后 `setWindowPos` 发送主进程，clamp 到 workArea。**关键**：
-  1. 必须跳过 `movementX=0` 的事件——窗口移动会在 Chromium 内合成指针回送事件；若退回 client 差分会随窗口位置产生反向拉扯 → 抽搐（v1.1 返工记录：绝对式 `起点+client 位移` 造成 2 帧追逐振荡；`screenX` 在本环境为 winPos+client 合成值、误差指数放大；均实测复现并废弃）。
-  2. **一致性守卫**：接受事件需满足 `Δclient ≈ movement − Δwindow`（容差 8px）——真实指针事件满足；窗口移动合成的回送事件会违背该关系（client 随窗口平移却携带窗口位移量的 movement），被拒绝后不会重复累加（实测回送事件偶发携带非零 movement，曾导致 2 倍位移）。
+拖拽引擎整体收归**主进程**，渲染进程仅做两件事：收集原始位移 `e.movementX/Y` 逐事件上报、松手后吸附+保存位置。
+
+- **主通道（光标权威）**：`drag:start` 后主进程 16ms 轮询 `screen.getCursorScreenPoint()` → `pos = cursor − offset` → clamp → `setPosition`。与参考实现 deepseek-whale-pet 同款；真实鼠标移动会更新其事件缓存，无任何窗口相对坐标参与 → 无反馈回路。
+- **备通道（原始位移）**：渲染进程把每个 pointermove 的 `(movementX, movementY, clientX, clientY)` 逐事件直发主进程（单事件失败互不影响）；主进程**逐事件**执行：一致性守卫（`Δclient ≈ movement − Δwindow`，容差 8px，拒绝窗口移动合成的回送事件）→ 以自身 `getBounds()` 为基准累加位移 → clamp → `setPosition`。光标通道一旦真实移动即锁定权威（`cursorLock`），增量通道让位。
+- **返工记录（全部实测复现）**：client/screen 与窗口位置耦合——绝对式「起点+client 位移」→ 2 帧追逐振荡；`screenX` 本环境为 winPos+client 合成值 → 误差指数放大；渲染进程做位移累加 + rAF 合并发送 → 被守卫拒绝的真实噪声事件会顺带吞掉未发送的位移；均废弃。逐事件直发 + 主进程权威解决。
+- **验证**：冒烟测试向渲染进程派发物理一致的合成 PointerEvent（movementX 探针 [-12,-20] 确认构造事件携带），三条断言连续多轮通过：落点 = 起点 + Σmovement（exact）、轨迹单调无回摆（noTwitch）、连续拖拽贴到 workArea 上边缘（reached）。真实噪声事件（真实鼠标微动）与合成事件混杂时依旧稳定（守卫逐事件独立）。
 - 松手回渲染进程完成**四分之一吸附**（中心 x < 1/4 → 左、> 3/4 → 右；y 同理），吸附后 `setConfig({posX,posY,posH,posV})` 记忆位置。
 - **左吸附镜像**：`state.h==='left'` 时根节点 `scaleX(-1)`，气泡文字反向 `scaleX(-1)` 保持可读。
 - **缩放固定角**：缩放改变窗口尺寸时，非翻转锚鲸鱼右下角、翻转锚左下角不动（`fixX/fixY`），随后钳制回 workArea。
@@ -138,18 +140,19 @@ petWin.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
 - **换图**：`img.src` 切换并重建 alpha 命中探针（`setupHitTest(src)`，探针加载期间放宽为全命中保证可点击）；预警时叠加红色 `!` 徽标与 🥺 情绪表情。
 - 判定在每次 `render()` 中执行（含余额变化、模式切换、配置广播），与低余额通知共用阈值语义。
 
-### 4.8 自定义气泡文案 + 颜色 + 暗色主题
+### 4.8 自定义气泡文案 + 颜色 + 暗色主题 + 原生设置窗口
 
 - **气泡文案**：`bubbleTextOk` / `bubbleTextLow`（限 20 字符，config 消毒 trim + slice(0,20)，空白回退默认）。气泡默认内容第一行按 `isLowBalance()` 二选一；随机台词段不受影响。
 - **文案颜色**：`textColorOk` / `textColorLow`（`#rrggbb` 或空=继承默认 #536ba9），随文案状态切换。菜单提供色板 + 「默认」按钮。
 - **峰谷自定义词**：`peakTextOff` / `peakTextOn`（各限 12 字符）；非空时覆盖内置/峰谷模式文案。
-- **暗色主题**：设置窗 `theme`（system/light/dark）。菜单页用 CSS 变量双主题（含 **option/placeholder/原生控件** 配色），`menu.js` 根据配置 + `matchMedia('(prefers-color-scheme: dark)')` 设置 `html[data-theme]` 并监听系统变化；`system` 模式下系统切换实时跟随。鲸鱼本体（浅色 UI）不受主题影响。
+- **暗色主题**：设置窗 `theme`（system/light/dark）。菜单页用 CSS 变量双主题，`menu.js` 根据配置 + `matchMedia('(prefers-color-scheme: dark)')` 设置 `html[data-theme]` 并监听系统变化；**主进程同步 `nativeTheme.themeSource`**，系统标题栏/原生控件/下拉弹层随之换肤。选择栏修复：`appearance:none` + 实色背景（`--wm-select-bg`）+ 自绘箭头 + `option` 显式前景/背景色（Chromium 原生 select 会被系统白底覆盖 → 暗色下白字白底）。
+- **原生设置窗口**：frame:true（系统标题栏）、非透明、非置顶、可关闭；Tab 标签页（账户/数据/外观/文案/音效/图片台词）在页面内切换，内容分区；不再 `blur` 自动收起。
 
-### 4.9 自定义音效 + 随机台词/动图文件 + 设置面板布局
+### 4.9 自定义音效 + 随机台词/动图池 + 去 Emoji
 
 - **自定义音效**：`pressSound` / `releaseSound`（路径或空）；设置窗「上传」→ 主进程文件对话框（mp3/wav/ogg/m4a/flac）→ 复制到 `~/.config/whale-pet/sounds/{press,release}.*` → 写回绝对路径；非空时覆盖当前音效集的按压/松手音源。
-- **custom.json**（`~/.config/whale-pet/custom.json`）：`{ lines: [{text(≤40), style(A|B|P|C), color(#rrggbb 可选)}×≤20], gif: 路径(可选) }`。自定义台词作为随机池新组（权重 8，无配置时不可命中，`pickRandomLines` 重新抽签）；自定义 gif 替换内置 `rua.gif`。主进程负责读文件与消毒（`custom:get` / `custom:reload` 广播 `custom:changed`）。
-- **设置面板布局**：分区（账户/数据/外观/气泡文案/音效/图片与台词）+ 双列网格 + 全宽行；窗口 376×700，短行两列、内容密集行跨列，基本无需滚动。
+- **lines.json（含全部默认值）**：`~/.config/whale-pet/lines.json` —— **随机台词/动图池完全移出渲染进程代码**，首次访问由主进程写入默认池（与原版权重一致的 6 组），用户可自由编辑后「重载」（`custom:get`/`custom:reload` 广播 `custom:changed`）。格式：`{ gif, groups: [ {weight, type: balance|gif} | {weight, lines:[{text≤40, style A|B|P|C, wrap?, color?}×≤3]} ... ] }`；空池回退默认。
+- **去 Emoji**：主界面（鲸鱼窗口）的情绪表情覆盖层（💤/😭/🥺）已整体移除，预警状态仅保留文字状态（预警图切换 + `!` 徽标）；菜单标题/眼睛按钮/通知标题的 emoji 一并移除。
 
 ## 5. IPC 协议（preload → 主进程）
 
@@ -161,7 +164,7 @@ petWin.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
 | `window:resize` / `window:set-pos` | send | 改窗口尺寸/位置（resize 后重申置顶，防部分 WM 掉层） |
 | `image:pick` / `image:reset` | invoke | 上传主图/预警图（复制到配置目录）/ 恢复内置默认 |
 | `sound:pick` / `sound:reset` | invoke | 上传自定义按压/松手音效 / 恢复默认 |
-| `custom:get` / `custom:reload` | invoke | 读 custom.json（消毒后）/ 重读并广播 `custom:changed` |
+| `custom:get` / `custom:reload` | invoke | 读 lines.json（首次自动生成默认池）/ 重读并广播 `custom:changed` |
 | `menu:open` / `menu:close` | send | 打开（鲸鱼旁、屏幕内钳制）/收起设置窗 |
 | `config:changed` / `whale:refresh` | 事件 | 广播回渲染进程 |
 

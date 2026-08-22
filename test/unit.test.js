@@ -17,6 +17,7 @@ delete process.env.DEEPSEEK_PLATFORM_TOKEN
 const bal = require('../lib/balance')
 const config = require('../lib/config')
 const ledger = require('../lib/ledger')
+const lines = require('../lib/lines')
 
 let passed = 0
 function test(name, fn) {
@@ -255,6 +256,33 @@ test('config: 消毒 / 原子保存 / 环境变量覆盖', () => {
   // 配置文件权限 0600（含密钥）
   const mode = fs.statSync(config.CONFIG_FILE).mode & 0o777
   assert.strictEqual(mode, 0o600)
+})
+
+// ---------- 随机台词池（lines.json） ----------
+test('lines: 首次读取自动生成默认池 / 消毒 / 空池回退', () => {
+  fs.rmSync(lines.LINES_FILE, { force: true })
+  const pool = lines.readPool()
+  assert.ok(pool.groups.length > 0, '默认池非空')
+  assert.ok(fs.existsSync(lines.LINES_FILE), '首次读取自动生成 lines.json')
+  const raw = JSON.parse(fs.readFileSync(lines.LINES_FILE, 'utf8'))
+  assert.ok(raw.groups.length > 0, '文件内含全部默认组')
+
+  // 消毒：超长 text 截断、非法 style 回退 A、weight<=0 丢弃、lines 空丢弃
+  const s = lines.sanitizePool({
+    groups: [
+      { weight: 5, lines: [{ text: 'x'.repeat(99), style: 'z' }] },
+      { weight: 0, type: 'gif' },
+      { weight: 3, type: 'balance' },
+      { weight: 4, lines: [] },
+    ],
+  })
+  assert.strictEqual(s.groups.length, 2)
+  assert.strictEqual(s.groups[0].lines[0].text.length, 40)
+  assert.strictEqual(s.groups[0].lines[0].style, 'A')
+  assert.strictEqual(s.groups[1].type, 'balance')
+  // 空池回退默认
+  assert.ok(lines.sanitizePool({ groups: [] }).groups.length > 0)
+  assert.ok(lines.sanitizePool(null).groups.length > 0)
 })
 
 console.log('\n' + passed + ' tests passed' + (process.exitCode ? ' (with failures)' : ''))

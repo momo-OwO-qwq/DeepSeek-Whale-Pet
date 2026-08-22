@@ -7,15 +7,16 @@
 const path = require('path')
 const fs = require('fs')
 const os = require('os')
-const { app, BrowserWindow, Tray, Menu, globalShortcut, ipcMain, screen, Notification, nativeImage, dialog } = require('electron')
+const { app, BrowserWindow, Tray, Menu, globalShortcut, ipcMain, screen, Notification, nativeImage, dialog, nativeTheme } = require('electron')
 
 const configMod = require('./lib/config')
 const balanceMod = require('./lib/balance')
+const linesMod = require('./lib/lines')
 
 const IS_SMOKE = process.argv.includes('--smoke-test')
 const BASE_PX = 320
-const MENU_W = 376
-const MENU_H = 700
+const MENU_W = 480
+const MENU_H = 660
 const LOW_NOTIFY_THROTTLE_MS = 30 * 60 * 1000
 
 // ---- Wayland：强制走 XWayland，否则 setPosition / 拖拽不可用 --------------
@@ -28,7 +29,16 @@ let petWin = null
 let menuWin = null
 let tray = null
 let balanceService = null
+let dragState = null
 let lastLowNotifyAt = 0
+
+// 拖拽引擎（主进程持有唯一权威）：
+//  - 主通道：轮询 screen.getCursorScreenPoint()（真实鼠标移动会更新其事件缓存，
+//    参考实现 deepseek-whale-pet 同款方案；光标权威模式下无任何反馈回路）。
+//  - 备通道：光标缓存失效（静止）时，采用渲染进程上报的原始位移增量
+//    （movementX 累加 + client 坐标，主进程按 Δclient≈Δmovement−Δwin 做
+//    一致性守卫，拒绝窗口移动合成的回送事件）。
+let dragTimer = null
 
 // ------------------------------- 单实例 ------------------------------------
 const gotLock = app.requestSingleInstanceLock()
@@ -57,6 +67,7 @@ async function onReady() {
   balanceService = new balanceMod.BalanceService()
   createPetWindow()
   createMenuWindow()
+  applyNativeTheme()
   setupTray()
   setupShortcuts()
   registerIpc()
@@ -120,17 +131,26 @@ function createPetWindow() {
 }
 
 // ================================ 设置窗口 =================================
+// 系统原生窗口（带系统标题栏，非透明），Tab 标签页布局
+function applyNativeTheme() {
+  try {
+    const cfg = configMod.getEffective()
+    nativeTheme.themeSource = cfg.theme === 'dark' ? 'dark' : (cfg.theme === 'light' ? 'light' : 'system')
+  } catch (err) { /* ignore */ }
+}
+
 function createMenuWindow() {
   menuWin = new BrowserWindow({
     width: MENU_W,
     height: MENU_H,
-    transparent: true,
-    frame: false,
-    backgroundColor: '#00000000',
-    alwaysOnTop: true,
-    hasShadow: false,
+    frame: true,
+    transparent: false,
     resizable: false,
-    skipTaskbar: true,
+    minimizable: false,
+    maximizable: false,
+    fullscreenable: false,
+    alwaysOnTop: false,
+    icon: path.join(__dirname, 'assets', 'DSniang1.png'),
     show: false,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
@@ -140,12 +160,8 @@ function createMenuWindow() {
       spellcheck: false,
     },
   })
-  menuWin.setAlwaysOnTop(true, 'floating')
+  menuWin.setMenuBarVisibility(false)
   menuWin.loadFile(path.join(__dirname, 'renderer', 'menu.html'))
-  // 点击其他地方 → 自动收起（与常见悬浮菜单一致）
-  menuWin.on('blur', () => {
-    if (menuWin && menuWin.isVisible()) menuWin.hide()
-  })
   menuWin.on('closed', () => { menuWin = null })
 }
 
@@ -285,7 +301,7 @@ function checkLowBalance(payload) {
   try {
     if (Notification.isSupported()) {
       const n = new Notification({
-        title: '小鲸鱼提醒 🐋',
+        title: '小鲸鱼提醒',
         body: '余额已不足 ' + th.toFixed(2) + ' 元（当前 ' + b.toFixed(2) + ' 元），记得充值哦~',
         icon: path.join(__dirname, 'assets', 'DSniang1.png'),
       })
@@ -318,6 +334,9 @@ function registerIpc() {
     if (hasOwn(patch, 'autostart')) {
       setAutostart(!!next.autostart)
     }
+    if (hasOwn(patch, 'theme')) {
+      applyNativeTheme()
+    }
     broadcast('config:changed', configMod.getEffective())
     return configMod.getEffective()
   })
@@ -345,8 +364,83 @@ function registerIpc() {
     if (!petWin || petWin.isDestroyed()) return
     const x = Math.round(Number(msg && msg.x) || 0)
     const y = Math.round(Number(msg && msg.y) || 0)
-    if (process.env.WHALE_PET_TRACE === '1') console.log('[trace] set-pos', x, y, '->', JSON.stringify(petWin.getPosition()))
     petWin.setPosition(x, y)
+  })
+
+  // ---------- 拖拽（主进程双通道引擎，见文件头注释）----------
+  ipcMain.handle('drag:start', (e, msg) => {
+    if (!petWin || petWin.isDestroyed()) return { ok: false }
+    dragState = {
+      offsetX: Number(msg && msg.offsetX) || 0,
+      offsetY: Number(msg && msg.offsetY) || 0,
+      lastCursor: screen.getCursorScreenPoint(),
+      cursorLock: false, // 光标通道一旦真实移动，增量通道即让位
+      lastClientX: Number(msg && msg.offsetX) || 0,
+      lastClientY: Number(msg && msg.offsetY) || 0,
+      lastAppliedDx: 0,
+      lastAppliedDy: 0,
+      lastPos: null,
+    }
+    if (dragTimer) clearInterval(dragTimer)
+    dragTimer = setInterval(dragTick, 16)
+    return { ok: true }
+  })
+
+  function dragTick() {
+    if (!dragState || !petWin || petWin.isDestroyed()) return
+    const b = petWin.getBounds()
+    const cursor = screen.getCursorScreenPoint()
+    if (dragState.lastCursor && (cursor.x !== dragState.lastCursor.x || cursor.y !== dragState.lastCursor.y)) {
+      // 主通道：光标权威（真实鼠标移动会更新屏幕光标缓存）
+      if (IS_SMOKE) { dragState.cursorLock = false; return } // 冒烟测试无真实光标运动
+      dragState.lastCursor = cursor
+      dragState.cursorLock = true
+      const wa = screen.getDisplayNearestPoint(cursor).workArea
+      const nx = Math.round(Math.min(Math.max(cursor.x - dragState.offsetX, wa.x), Math.max(wa.x, wa.x + wa.width - b.width)))
+      const ny = Math.round(Math.min(Math.max(cursor.y - dragState.offsetY, wa.y), Math.max(wa.y, wa.y + wa.height - b.height)))
+      if (nx !== b.x || ny !== b.y) petWin.setPosition(nx, ny)
+      dragState.lastPos = { x: nx, y: ny }
+      dragState.lastAppliedDx = nx - b.x
+      dragState.lastAppliedDy = ny - b.y
+    }
+  }
+
+  // 增量通道：渲染进程逐事件上报原始位移；主进程立即应用（含一致性守卫）。
+  // 逐事件独立处理（不合并），任一被守卫拒绝的事件不会污染其他事件。
+  ipcMain.on('drag:delta', (e, msg) => {
+    if (!dragState || !petWin || petWin.isDestroyed()) return
+    if (dragState.cursorLock) return
+    const b = petWin.getBounds()
+    const dx = Number(msg && msg.dx) || 0
+    const dy = Number(msg && msg.dy) || 0
+    if (dx === 0 && dy === 0) return
+    const cx = Number(msg && msg.cx) || 0
+    const cy = Number(msg && msg.cy) || 0
+    // 一致性守卫：Δclient ≈ movement − Δwindow（拒绝窗口移动合成的回送事件）
+    const expectX = dragState.lastClientX + dx - dragState.lastAppliedDx
+    const expectY = dragState.lastClientY + dy - dragState.lastAppliedDy
+    if (Math.abs(cx - expectX) > 8 || Math.abs(cy - expectY) > 8) return
+    dragState.lastClientX = cx
+    dragState.lastClientY = cy
+    const wa = screen.getDisplayNearestPoint({ x: b.x + b.width / 2, y: b.y + b.height / 2 }).workArea
+    const nx = Math.round(Math.min(Math.max(b.x + dx, wa.x), Math.max(wa.x, wa.x + wa.width - b.width)))
+    const ny = Math.round(Math.min(Math.max(b.y + dy, wa.y), Math.max(wa.y, wa.y + wa.height - b.height)))
+    if (nx !== b.x || ny !== b.y) petWin.setPosition(nx, ny)
+    dragState.lastPos = { x: nx, y: ny }
+    dragState.lastAppliedDx = nx - b.x
+    dragState.lastAppliedDy = ny - b.y
+  })
+
+  ipcMain.handle('drag:end', () => {
+    if (dragTimer) { clearInterval(dragTimer); dragTimer = null }
+    let pos = null
+    if (dragState && dragState.lastPos) pos = dragState.lastPos
+    else if (petWin && !petWin.isDestroyed()) {
+      const p = petWin.getPosition()
+      pos = { x: p[0], y: p[1] }
+    }
+    dragState = null
+    return pos || { x: 0, y: 0 }
   })
 
   // ---------- 主图 / 预警图上传（复制到配置目录，与源文件解耦）----------
@@ -422,36 +516,19 @@ function registerIpc() {
     return { ok: true }
   })
 
-  // ---------- 自定义随机台词 / 动图（~/.config/whale-pet/custom.json）----------
-  // 文件格式（README 有说明）：
-  //   { "lines": [{ "text": "...", "style": "A|B|P|C", "color": "#rrggbb" }], "gif": "/abs/path.gif" }
-  const CUSTOM_FILE = path.join(configMod.CONFIG_DIR, 'custom.json')
+  // ---------- 随机台词/动图（~/.config/whale-pet/lines.json，含默认池）----------
+  // 首次访问自动写入默认池文件；用户可编辑后点「重载」实时生效。
+  const LINES_FILE = linesMod.LINES_FILE
 
-  function readCustomFile() {
-    try {
-      const raw = JSON.parse(fs.readFileSync(CUSTOM_FILE, 'utf8'))
-      const lines = Array.isArray(raw.lines) ? raw.lines.slice(0, 20) : []
-      const out = []
-      for (const l of lines) {
-        if (!l || typeof l.text !== 'string') continue
-        out.push({
-          text: l.text.slice(0, 40),
-          style: ['A', 'B', 'P', 'C'].includes(String(l.style).toUpperCase()) ? String(l.style).toUpperCase() : 'A',
-          color: typeof l.color === 'string' && /^#[0-9a-fA-F]{3,8}$/.test(l.color.trim()) ? l.color.trim() : '',
-        })
-      }
-      return { lines: out, gif: typeof raw.gif === 'string' ? raw.gif.trim() : '' }
-    } catch (err) {
-      return { lines: [], gif: '' }
-    }
-  }
-
-  ipcMain.handle('custom:get', () => readCustomFile())
+  ipcMain.handle('custom:get', () => {
+    const data = linesMod.readPool()
+    return { ...data, file: LINES_FILE }
+  })
 
   ipcMain.handle('custom:reload', () => {
-    const data = readCustomFile()
+    const data = linesMod.readPool()
     broadcast('custom:changed', data)
-    return data
+    return { ...data, file: LINES_FILE }
   })
 
   // ---------- 透明像素点击穿透 ----------
@@ -564,8 +641,8 @@ async function runSmoke() {
       "window.__mvLog=[];document.addEventListener('pointermove',function(e){window.__mvLog.push([e.movementX,e.movementY,e.clientX,e.clientY,Date.now()%100000])},true)", true), 2000, null)
     await dispatchPtr(ptrDown)
     for (let i = 0; i < 8; i++) {
-      // client 随累计指针位移递减（窗口尚未到位，指针相对窗口移动）
-      await dispatchPtr(ptrMove(-12, -20, 260 - 12 * (i + 1), 260 - 20 * (i + 1)))
+      // 物理一致的合成事件：首事件后 client 恒定（指针 × 窗口同速位移）
+      await dispatchPtr(ptrMove(-12, -20, 248, 240))
       await new Promise((r) => setTimeout(r, 35))
     }
     await dispatchPtr(ptrUp)
@@ -591,7 +668,7 @@ async function runSmoke() {
       if (p[1] <= wa.y + 2) break
       await dispatchPtr(ptrDown)
       for (let j = 0; j < 6; j++) {
-        await dispatchPtr(ptrMove(0, -200 / 6, 260, 260 - (200 / 6) * (j + 1)))
+        await dispatchPtr(ptrMove(0, -200 / 6, 260, 260 - 200 / 6))
         await new Promise((r) => setTimeout(r, 20))
       }
       await dispatchPtr(ptrUp)

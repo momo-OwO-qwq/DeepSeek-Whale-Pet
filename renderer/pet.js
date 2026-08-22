@@ -41,10 +41,7 @@
   img.alt = 'DeepSeek 余额'
   img.draggable = false
 
-  var moodEl = document.createElement('div')
-  moodEl.className = 'wp-mood'
-
-  // 预警图片徽标（默认隐藏；达到预警额度时显示）
+  // 预警徽标（默认隐藏；达到预警额度且开启预警换图时显示）
   var alertBadge = document.createElement('div')
   alertBadge.className = 'wp-alert-badge'
   alertBadge.textContent = '!'
@@ -94,7 +91,6 @@
   })
 
   body.appendChild(breath)
-  body.appendChild(moodEl)
   body.appendChild(bubbleBox)
   root.appendChild(body)
   root.appendChild(menuBtn)
@@ -152,8 +148,7 @@
   var peakTextOn = ''
   var pressSound = ''
   var releaseSound = ''
-  var customLines = null
-  var customGif = ''
+  var customGroups = null
   var currentImgSrc = ''
   var lastPointerMoveAt = Date.now()
 
@@ -188,40 +183,46 @@
     ]
   }
 
-  var RANDOM_GROUPS = [
-    { w: 45, lines: buildGroup1 },
-    { w: 7, lines: function () { return singleCenter('B', pickOne(['好模型... ↓', '好女孩...↓'])) } },
-    { w: 7, lines: function () { return singleCenter('A', pickOne(['不知道用户有什么用，先赶走吧~', '我...我...我也要挣钱吗？', '我去吃饭啦，测完叫我', '压力一只蓝色大肥鱼？！', 'DeepSleep...', '坏了...用户彻底怒了！']), '', true) } },
-    { w: 10, lines: function () { return { gif: true } } },
-    { w: 3, lines: function () { return singleCenter('A', pickOne(['你目录里的dsh是什么...大烧货吗...?', '恭喜你实现token自由！token全跑了！', '真当我是便宜货啊...']), '', true) } },
-    { w: 1, lines: function () { return singleCenter('B', '哦鲸鲸... ') } },
-    { w: 8, lines: customRandomLines }, // 自定义随机台词（custom.json；无配置时返回 null → 不命中）
-  ]
+  // 随机台词池完全来自 ~/.config/whale-pet/lines.json（含默认值，主进程首次
+  // 自动生成文件）；渲染进程不再硬编码台词。
+  var poolCache = null
 
-  // 自定义随机台词组：custom.json 的 lines → 气泡三行（不足补空，超出截断）
-  function customRandomLines() {
-    if (!customLines || !customLines.length) return null
-    var out = [null, null, null]
-    for (var i = 0; i < 3 && i < customLines.length; i++) {
-      var l = customLines[i]
-      out[i] = { t: l.text, s: l.style, c: l.color || '', w: l.style === 'A' }
+  function buildCustomPool() {
+    var groups = customGroups && Array.isArray(customGroups.groups) ? customGroups.groups : []
+    var pool = []
+    for (var i = 0; i < groups.length; i++) {
+      var g = groups[i]
+      var weight = Number(g && g.weight)
+      if (!isFinite(weight) || weight <= 0) continue
+      if (g.type === 'balance') {
+        pool.push({ w: weight, lines: buildGroup1 })
+      } else if (g.type === 'gif') {
+        pool.push({ w: weight, lines: function () { return { gif: true } } })
+      } else if (g.lines && g.lines.length) {
+        pool.push({ w: weight, lines: function () {
+          var out = [null, null, null]
+          for (var j = 0; j < 3 && j < g.lines.length; j++) {
+            var l = g.lines[j]
+            out[j] = { t: l.text, s: l.style, c: l.color || '', w: !!l.wrap }
+          }
+          return out
+        } })
+      }
     }
-    return out
+    if (!pool.length) pool = [{ w: 45, lines: buildGroup1 }]
+    return pool
   }
 
   function pickRandomLines() {
+    if (!poolCache) poolCache = buildCustomPool()
     var total = 0
-    for (var i = 0; i < RANDOM_GROUPS.length; i++) total += RANDOM_GROUPS[i].w
+    for (var i = 0; i < poolCache.length; i++) total += poolCache[i].w
     var r = Math.random() * total
-    for (var i = 0; i < RANDOM_GROUPS.length; i++) {
-      r -= RANDOM_GROUPS[i].w
-      if (r < 0) {
-        var lines = RANDOM_GROUPS[i].lines()
-        if (lines) return lines
-        r = -1 // 自定义组未配置：重新抽签
-      }
+    for (var i = 0; i < poolCache.length; i++) {
+      r -= poolCache[i].w
+      if (r < 0) return poolCache[i].lines()
     }
-    return RANDOM_GROUPS[RANDOM_GROUPS.length - 1].lines()
+    return poolCache[poolCache.length - 1].lines()
   }
 
   function applyBubbleLines(lines) {
@@ -405,16 +406,6 @@
       setHint(hint)
       setStateLabel()
     }
-    updateMood()
-  }
-
-  function updateMood() {
-    var mood = ''
-    if (state.status === 'loading' && state.balance === null) mood = '💤'
-    else if (state.status === 'error') mood = '😭'
-    else if (isLowBalance()) mood = '🥺'
-    if (moodEl.textContent !== mood) moodEl.textContent = mood
-    moodEl.classList.toggle('wp-mood-show', !!mood)
     updateHeroImage()
   }
 
@@ -432,11 +423,11 @@
     if (labelEl.style.color !== c) labelEl.style.color = c
   }
 
-  // 自定义随机台词/动图（~/.config/whale-pet/custom.json，菜单可重载）
+  // 自定义随机台词/动图池（~/.config/whale-pet/lines.json，含全部默认值）
   function applyCustom(data) {
-    customLines = data && Array.isArray(data.lines) ? data.lines : null
+    customGroups = data && Array.isArray(data.groups) ? data : null
+    poolCache = null // 池变化 → 重建
     var gif = data && typeof data.gif === 'string' && data.gif.trim() ? data.gif.trim() : ''
-    customGif = gif
     try {
       var want = gif ? resolveImgPath(gif) : '../assets/rua.gif'
       var cur = gifEl.getAttribute('src')
@@ -605,17 +596,10 @@
   }
 
   // ------------------------------------------------------------- 指针交互
-  // 拖拽由渲染进程自己的 pointermove 驱动（与 DSH 原版一致）：
-  //   - 位移增量用 **e.movementX/movementY**（操作系统原始位移，窗口位置无关）：
-  //     client/screen 坐标在 Electron/X11 下与当前窗口位置耦合 —— 拖动中窗口
-  //     一动，坐标就平移，任何用「起点 + 坐标差」的公式都会反馈振荡（抽搐），
-  //     实测证实在本环境下 screenX 为 winPos+client 合成值，误差会指数放大。
-  //   - 兜底：movementX 全 0 时用 client 差分（合成/注入事件场景）。
-  //   - setPointerCapture 保证指针移出窗口仍持续收到 pointermove/pointerup。
-  //   - requestAnimationFrame 节流发送窗口位置（1:1 跟手）。
-  var dragFrameId = null
-  var pendingDrag = null
-
+  // 拖拽：渲染进程只负责收集「原始位移增量」（e.movementX/Y）并上报主进程；
+  // 窗口移动由主进程双通道引擎完成（光标权威 / 增量备通道，见 main.js 注释）。
+  // 渲染进程不做任何窗口相对坐标的位移运算（client/screen 与窗口位置耦合，
+  // 曾导致抽搐与飞移）。setPointerCapture 保证窗口外松手不掉拖。
   function onDocPointerDown(e) {
     if (e.target && e.target.closest && (e.target.closest('.wp-menu-btn') || e.target.closest('.wp-bubble'))) return
     if (e.button !== 0 && e.pointerType === 'mouse') return
@@ -627,23 +611,13 @@
       pointerId: e.pointerId,
       startX: e.clientX,
       startY: e.clientY,
-      lastClientX: e.clientX,
-      lastClientY: e.clientY,
-      appliedWinX: state.posX,
-      appliedWinY: state.posY,
-      targetX: state.posX,
-      targetY: state.posY,
       moved: false,
-      wa: null,
     }
     try { e.target.setPointerCapture(e.pointerId) } catch (err) {}
     root.classList.add('wp-dragging')
     pressDown()
     setWidgetCursor('grabbing')
-    // 预取当前 workArea（异步；到位前的移动先按捕获/默认值钳制）
-    api.getWorkArea().then(function (wa) {
-      if (drag && drag.active && wa) drag.wa = wa
-    }).catch(function () {})
+    api.dragStart(e.clientX, e.clientY) // 主进程以光标权威接管（含增量备通道）
     // onDocPointerMove 是持久监听（启动时注册），不在此重复注册，
     // 否则拖动结束 removeEventListener 会把持久监听一并摘掉。
     document.addEventListener('pointerup', onDocPointerUp, true)
@@ -653,69 +627,22 @@
   function onDocPointerMove(e) {
     lastPointerMoveAt = Date.now()
     if (drag && drag.active) {
-      // 原始位移增量（e.movementX/Y）：窗口位置无关，是拖动跟手且不抽搐的关键。
       var mx = e.movementX
       var my = e.movementY
       if (typeof mx !== 'number' || !isFinite(mx)) mx = 0
       if (typeof my !== 'number' || !isFinite(my)) my = 0
       if (mx === 0 && my === 0) return // 指针未动（含窗口移动合成的回送事件）
-      // 一致性守卫：真实指针事件满足 Δclient ≈ movement − Δwindow。
-      // 窗口移动触发的“合成回送事件”会违背该关系（其 client 随窗口平移、
-      // 却携带了窗口位移量的 movement）→ 跳过，防止位移被重复累加（抽搐/飞走）。
-      var winDx = state.posX - drag.appliedWinX
-      var winDy = state.posY - drag.appliedWinY
-      var expectX = drag.lastClientX + mx - winDx
-      var expectY = drag.lastClientY + my - winDy
-      if (Math.abs(e.clientX - expectX) > 8 || Math.abs(e.clientY - expectY) > 8) return
       var dxc = e.clientX - drag.startX
       var dyc = e.clientY - drag.startY
       if (dxc * dxc + dyc * dyc >= CLICK_SQ || Math.abs(mx) + Math.abs(my) > 2) drag.moved = true
-      drag.lastClientX = e.clientX
-      drag.lastClientY = e.clientY
-      drag.targetX += mx
-      drag.targetY += my
-      pendingDrag = { x: drag.targetX, y: drag.targetY }
-      scheduleDragMove()
+      // 逐事件上报（主进程守卫+应用，单事件失败不影响其他事件）
+      api.dragDelta(mx, my, e.clientX, e.clientY)
       return
     }
     // 悬停在鲸鱼上 → 显示菜单按钮 + 抓取光标
     var over = isWhaleHit(e)
     menuBtn.classList.toggle('wp-menu-btn-visible', over)
     setWidgetCursor(over ? 'grab' : '')
-  }
-
-  function scheduleDragMove() {
-    if (dragFrameId) return
-    dragFrameId = requestAnimationFrame(function () {
-      dragFrameId = null
-      if (!drag || !drag.active || !pendingDrag) return
-      var p = pendingDrag
-      pendingDrag = null
-      applyDragTarget(p.x, p.y)
-    })
-  }
-
-  function applyDragTarget(tx, ty) {
-    var wa = drag.wa
-    if (!wa) return // workArea 未就绪：下一帧再处理（或使用已有坐标钳制）
-    var x = clamp(tx, wa.x, wa.x + wa.width - state.winW)
-    var y = clamp(ty, wa.y, wa.y + wa.height - state.winH)
-    // 以钳制后的位置为新的增量起点，避免溢出后越拖越远
-    drag.targetX = x
-    drag.targetY = y
-    drag.appliedWinX = x
-    drag.appliedWinY = y
-    state.posX = x
-    state.posY = y
-    api.setWindowPos(x, y)
-    // 目标被钳制（可能已到边/跨显示器）→ 刷新 workArea 供后续移动使用
-    if (x !== tx || y !== ty) refreshDragWorkArea()
-  }
-
-  function refreshDragWorkArea() {
-    api.getWorkArea().then(function (wa) {
-      if (drag && drag.active && wa) drag.wa = wa
-    }).catch(function () {})
   }
 
   async function onDocPointerUp(e) {
@@ -728,6 +655,7 @@
     root.classList.remove('wp-dragging')
     setWidgetCursor('')
     if (clickAllowed && !drag.moved) {
+      await api.dragEnd()
       showBubble()
       refresh(true)
       return
@@ -747,8 +675,9 @@
   }
 
   async function finishDrag() {
+    var end = await api.dragEnd() // {x, y} 主进程记录的最终窗口位置
     var wa = await api.getWorkArea()
-    var x = state.posX, y = state.posY
+    var x = Math.round(end.x), y = Math.round(end.y)
     var w = state.winW, h = state.winH
     var cx = x + w / 2
     var cy = y + h / 2
@@ -908,7 +837,7 @@
     if (typeof c.scale === 'number' && c.scale !== state.scale) {
       await setScale(c.scale)
     }
-    updateMood()
+    updateHeroImage()
   }
 
   // ------------------------------------------------------------- 外部事件

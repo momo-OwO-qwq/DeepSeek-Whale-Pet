@@ -15,13 +15,18 @@ contextBridge.exposeInMainWorld('whaleAPI', {
   getWorkArea: () => ipcRenderer.invoke('window:get-workarea'),
   resizeWindow: (w, h) => ipcRenderer.send('window:resize', { w, h }),
   setWindowPos: (x, y) => ipcRenderer.send('window:set-pos', { x, y }),
+  // 拖拽：渲染进程上报原始位移增量（dragDelta），主进程双通道引擎移动窗口；
+  // dragEnd 返回最终窗口位置（供吸附/保存）
+  dragStart: (offsetX, offsetY) => ipcRenderer.invoke('drag:start', { offsetX, offsetY }),
+  dragDelta: (dx, dy, cx, cy) => ipcRenderer.send('drag:delta', { dx, dy, cx, cy }),
+  dragEnd: () => ipcRenderer.invoke('drag:end'),
   // 主图 / 预警图上传（复制到配置目录） + 恢复默认
   pickImage: (kind) => ipcRenderer.invoke('image:pick', { kind }),
   resetImage: (kind) => ipcRenderer.invoke('image:reset', { kind }),
   // 自定义音效（按压/松手）上传 + 恢复默认
   pickSound: (which) => ipcRenderer.invoke('sound:pick', { which }),
   resetSound: (which) => ipcRenderer.invoke('sound:reset', { which }),
-  // 自定义随机台词/动图（~/.config/whale-pet/custom.json）
+  // 自定义随机台词/动图（~/.config/whale-pet/lines.json，含默认池）
   getCustom: () => ipcRenderer.invoke('custom:get'),
   reloadCustom: () => ipcRenderer.invoke('custom:reload'),
   // 设置窗口

@@ -73,21 +73,6 @@ html, body {
   user-select: none;
 }
 
-/* 情绪表情覆盖层：跟随余额/状态切换 */
-.wp-mood {
-  position: absolute;
-  right: 6%;
-  bottom: 36.5%;
-  font-size: calc(var(--wp-u) * 72);
-  line-height: 1;
-  opacity: 0;
-  transform: scale(.6);
-  transition: opacity .2s ease, transform .25s cubic-bezier(.34, 1.56, .64, 1);
-  pointer-events: none;
-  z-index: 2;
-}
-.wp-mood.wp-mood-show { opacity: 1; transform: scale(1); }
-
 /* 预警徽标（预警换图开启且余额低于阈值时显示） */
 .wp-alert-badge {
   position: absolute;
