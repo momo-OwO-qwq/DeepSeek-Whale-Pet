@@ -18,10 +18,17 @@ contextBridge.exposeInMainWorld('whaleAPI', {
   // 主图 / 预警图上传（复制到配置目录） + 恢复默认
   pickImage: (kind) => ipcRenderer.invoke('image:pick', { kind }),
   resetImage: (kind) => ipcRenderer.invoke('image:reset', { kind }),
+  // 自定义音效（按压/松手）上传 + 恢复默认
+  pickSound: (which) => ipcRenderer.invoke('sound:pick', { which }),
+  resetSound: (which) => ipcRenderer.invoke('sound:reset', { which }),
+  // 自定义随机台词/动图（~/.config/whale-pet/custom.json）
+  getCustom: () => ipcRenderer.invoke('custom:get'),
+  reloadCustom: () => ipcRenderer.invoke('custom:reload'),
   // 设置窗口
   openMenu: () => ipcRenderer.send('menu:open'),
   closeMenu: () => ipcRenderer.send('menu:close'),
   // 事件
   onConfigChanged: (cb) => ipcRenderer.on('config:changed', (_e, cfg) => cb(cfg)),
+  onCustomChanged: (cb) => ipcRenderer.on('custom:changed', (_e, data) => cb(data)),
   onRefresh: (cb) => ipcRenderer.on('whale:refresh', () => cb()),
 })

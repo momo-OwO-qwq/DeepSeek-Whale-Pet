@@ -75,14 +75,16 @@ petWin.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
 - **最终方案（与参考实现 deepseek-whale-pet 一致）**：**完全不做 OS 级穿透**——窗口始终接收鼠标事件；渲染进程用 `isWhaleHit` 画布 alpha 判定，鲸鱼本体（及气泡/菜单按钮）之外的点按直接忽略。代价是窗口矩形内的透明区域会吃掉点击，换来的是**真实鼠标点击 100% 可靠**，并用 xdotool 真实点击自动化验证通过（修复前 BUBBLE=false，修复后 BUBBLE=true 连续 14 次探针采样）。
 - `focusable: false` 也被移除：与参考实现一致的最小窗口属性集，避免个别 WM 下的输入怪癖。
 
-### 4.2 拖拽 + 吸附（v1.1 重写：不再依赖系统光标 API）
+### 4.2 拖拽 + 吸附（v1.2 重写：movementX 原始增量，无抽搐、可贴边）
 
-- 渲染进程 `pointerdown` 记录**拖动起点窗口位置**（`state.posX/posY`，渲染进程始终维护）与按压位置 `(clientX, clientY)`；`setPointerCapture` 保证指针移出窗口仍持续收到 `pointermove`/`pointerup`。
-- 每次 `pointermove`：`目标 = 起点窗口位置 + (当前 client - 起点 client)` —— **完全事件驱动，不调用 `screen.getCursorScreenPoint()`**；`requestAnimationFrame` 节流后经 `setWindowPos` 发送给主进程 1:1 跟手（拖过四个边由 clamp 收住）。
-- v1.0 曾用主进程 16ms 轮询光标（`getCursorScreenPoint`）驱动拖拽，实测该 API 在 Linux/XWayland 下是**事件缓存**：xdotool 移动指针后 App 读到的是过期坐标 → 真实拖动几乎不动（用户报告「不能拖动到桌面四边」）。重写后以真实指针事件为准，任意距离可达任何桌面边，冒烟测试用 `sendInputEvent` 全链路验证（常规拖动 moved=true、连续向上拖到达 workArea 上边缘 reached=true）。
+- 渲染进程 `pointerdown` 记录拖动状态；`setPointerCapture` 保证指针移出窗口仍持续收到 `pointermove`/`pointerup`。
+- **位移增量 = `e.movementX / e.movementY`**（OS 原始位移，窗口位置无关）逐事件累加到目标，rAF 节流后 `setWindowPos` 发送主进程，clamp 到 workArea。**关键**：
+  1. 必须跳过 `movementX=0` 的事件——窗口移动会在 Chromium 内合成指针回送事件；若退回 client 差分会随窗口位置产生反向拉扯 → 抽搐（v1.1 返工记录：绝对式 `起点+client 位移` 造成 2 帧追逐振荡；`screenX` 在本环境为 winPos+client 合成值、误差指数放大；均实测复现并废弃）。
+  2. **一致性守卫**：接受事件需满足 `Δclient ≈ movement − Δwindow`（容差 8px）——真实指针事件满足；窗口移动合成的回送事件会违背该关系（client 随窗口平移却携带窗口位移量的 movement），被拒绝后不会重复累加（实测回送事件偶发携带非零 movement，曾导致 2 倍位移）。
 - 松手回渲染进程完成**四分之一吸附**（中心 x < 1/4 → 左、> 3/4 → 右；y 同理），吸附后 `setConfig({posX,posY,posH,posV})` 记忆位置。
 - **左吸附镜像**：`state.h==='left'` 时根节点 `scaleX(-1)`，气泡文字反向 `scaleX(-1)` 保持可读。
 - **缩放固定角**：缩放改变窗口尺寸时，非翻转锚鲸鱼右下角、翻转锚左下角不动（`fixX/fixY`），随后钳制回 workArea。
+- **验证**：smoke 向渲染进程派发携带显式 movementX 的合成 PointerEvent（走真实处理器代码），断言落点 = 起点 + movement 总和（exact）、轨迹单调（noTwitch）、连续拖拽贴到 workArea 上边缘（reached）。
 
 ### 4.3 余额拉取（与原版一致）
 
@@ -136,10 +138,18 @@ petWin.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
 - **换图**：`img.src` 切换并重建 alpha 命中探针（`setupHitTest(src)`，探针加载期间放宽为全命中保证可点击）；预警时叠加红色 `!` 徽标与 🥺 情绪表情。
 - 判定在每次 `render()` 中执行（含余额变化、模式切换、配置广播），与低余额通知共用阈值语义。
 
-### 4.8 自定义气泡文案 + 暗色主题
+### 4.8 自定义气泡文案 + 颜色 + 暗色主题
 
-- **气泡文案**：`bubbleTextOk` / `bubbleTextLow`（默认 `DeepSeek 余额` / `余额预警`，均限 20 字符，config 消毒时 trim + slice(0,20)，空白回退默认）。气泡默认内容的第一行文字按 `isLowBalance()` 二选一；随机台词段不受影响。
-- **暗色主题**：设置窗 `theme`（system/light/dark）。菜单页用 CSS 变量实现双主题，`menu.js` 根据配置 + `matchMedia('(prefers-color-scheme: dark)')` 设置 `html[data-theme]` 并监听系统变化；`system` 模式下系统切换实时跟随。鲸鱼本体（浅色 UI）不受主题影响。
+- **气泡文案**：`bubbleTextOk` / `bubbleTextLow`（限 20 字符，config 消毒 trim + slice(0,20)，空白回退默认）。气泡默认内容第一行按 `isLowBalance()` 二选一；随机台词段不受影响。
+- **文案颜色**：`textColorOk` / `textColorLow`（`#rrggbb` 或空=继承默认 #536ba9），随文案状态切换。菜单提供色板 + 「默认」按钮。
+- **峰谷自定义词**：`peakTextOff` / `peakTextOn`（各限 12 字符）；非空时覆盖内置/峰谷模式文案。
+- **暗色主题**：设置窗 `theme`（system/light/dark）。菜单页用 CSS 变量双主题（含 **option/placeholder/原生控件** 配色），`menu.js` 根据配置 + `matchMedia('(prefers-color-scheme: dark)')` 设置 `html[data-theme]` 并监听系统变化；`system` 模式下系统切换实时跟随。鲸鱼本体（浅色 UI）不受主题影响。
+
+### 4.9 自定义音效 + 随机台词/动图文件 + 设置面板布局
+
+- **自定义音效**：`pressSound` / `releaseSound`（路径或空）；设置窗「上传」→ 主进程文件对话框（mp3/wav/ogg/m4a/flac）→ 复制到 `~/.config/whale-pet/sounds/{press,release}.*` → 写回绝对路径；非空时覆盖当前音效集的按压/松手音源。
+- **custom.json**（`~/.config/whale-pet/custom.json`）：`{ lines: [{text(≤40), style(A|B|P|C), color(#rrggbb 可选)}×≤20], gif: 路径(可选) }`。自定义台词作为随机池新组（权重 8，无配置时不可命中，`pickRandomLines` 重新抽签）；自定义 gif 替换内置 `rua.gif`。主进程负责读文件与消毒（`custom:get` / `custom:reload` 广播 `custom:changed`）。
+- **设置面板布局**：分区（账户/数据/外观/气泡文案/音效/图片与台词）+ 双列网格 + 全宽行；窗口 376×700，短行两列、内容密集行跨列，基本无需滚动。
 
 ## 5. IPC 协议（preload → 主进程）
 
@@ -150,6 +160,8 @@ petWin.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
 | `window:get-workarea` | invoke | 鲸鱼所在显示器的 workArea |
 | `window:resize` / `window:set-pos` | send | 改窗口尺寸/位置（resize 后重申置顶，防部分 WM 掉层） |
 | `image:pick` / `image:reset` | invoke | 上传主图/预警图（复制到配置目录）/ 恢复内置默认 |
+| `sound:pick` / `sound:reset` | invoke | 上传自定义按压/松手音效 / 恢复默认 |
+| `custom:get` / `custom:reload` | invoke | 读 custom.json（消毒后）/ 重读并广播 `custom:changed` |
 | `menu:open` / `menu:close` | send | 打开（鲸鱼旁、屏幕内钳制）/收起设置窗 |
 | `config:changed` / `whale:refresh` | 事件 | 广播回渲染进程 |
 

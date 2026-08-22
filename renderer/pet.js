@@ -146,6 +146,14 @@
   var alertImgPath = 'assets/DSniang02.png'
   var bubbleTextOk = 'DeepSeek 余额'
   var bubbleTextLow = '余额预警'
+  var textColorOk = ''
+  var textColorLow = ''
+  var peakTextOff = ''
+  var peakTextOn = ''
+  var pressSound = ''
+  var releaseSound = ''
+  var customLines = null
+  var customGif = ''
   var currentImgSrc = ''
   var lastPointerMoveAt = Date.now()
 
@@ -164,10 +172,12 @@
 
   function buildGroup1() {
     var peak = !!state.isPeak
-    var offText = '空闲时段'
-    var peakTextStr = '高峰时段'
-    if (peakMode === 'liangwen') { offText = '梁文谷'; peakTextStr = '梁文峰' }
-    else if (peakMode === 'qiangqiang') { offText = '!?谷谷?!'; peakTextStr = '!?峰峰?!' }
+    var offText = peakTextOff || '空闲时段'
+    var peakTextStr = peakTextOn || '高峰时段'
+    if (!peakTextOff && !peakTextOn) {
+      if (peakMode === 'liangwen') { offText = '梁文谷'; peakTextStr = '梁文峰' }
+      else if (peakMode === 'qiangqiang') { offText = '!?谷谷?!'; peakTextStr = '!?峰峰?!' }
+    }
     if (!peakText) {
       return [{ t: '今日已用 ' + fmt(state.todayUsage, state.currency), s: 'C', c: '' }]
     }
@@ -185,7 +195,19 @@
     { w: 10, lines: function () { return { gif: true } } },
     { w: 3, lines: function () { return singleCenter('A', pickOne(['你目录里的dsh是什么...大烧货吗...?', '恭喜你实现token自由！token全跑了！', '真当我是便宜货啊...']), '', true) } },
     { w: 1, lines: function () { return singleCenter('B', '哦鲸鲸... ') } },
+    { w: 8, lines: customRandomLines }, // 自定义随机台词（custom.json；无配置时返回 null → 不命中）
   ]
+
+  // 自定义随机台词组：custom.json 的 lines → 气泡三行（不足补空，超出截断）
+  function customRandomLines() {
+    if (!customLines || !customLines.length) return null
+    var out = [null, null, null]
+    for (var i = 0; i < 3 && i < customLines.length; i++) {
+      var l = customLines[i]
+      out[i] = { t: l.text, s: l.style, c: l.color || '', w: l.style === 'A' }
+    }
+    return out
+  }
 
   function pickRandomLines() {
     var total = 0
@@ -193,7 +215,11 @@
     var r = Math.random() * total
     for (var i = 0; i < RANDOM_GROUPS.length; i++) {
       r -= RANDOM_GROUPS[i].w
-      if (r < 0) return RANDOM_GROUPS[i].lines()
+      if (r < 0) {
+        var lines = RANDOM_GROUPS[i].lines()
+        if (lines) return lines
+        r = -1 // 自定义组未配置：重新抽签
+      }
     }
     return RANDOM_GROUPS[RANDOM_GROUPS.length - 1].lines()
   }
@@ -399,8 +425,23 @@
 
   // 气泡第一行：余额充足/预警 两套自定义文案（限 20 字符，config 已消毒）
   function setStateLabel() {
-    var t = isLowBalance() ? (bubbleTextLow || 'DeepSeek 余额') : (bubbleTextOk || 'DeepSeek 余额')
+    var low = isLowBalance()
+    var t = low ? (bubbleTextLow || 'DeepSeek 余额') : (bubbleTextOk || 'DeepSeek 余额')
+    var c = low ? textColorLow : textColorOk
     if (labelEl.textContent !== t) labelEl.textContent = t
+    if (labelEl.style.color !== c) labelEl.style.color = c
+  }
+
+  // 自定义随机台词/动图（~/.config/whale-pet/custom.json，菜单可重载）
+  function applyCustom(data) {
+    customLines = data && Array.isArray(data.lines) ? data.lines : null
+    var gif = data && typeof data.gif === 'string' && data.gif.trim() ? data.gif.trim() : ''
+    customGif = gif
+    try {
+      var want = gif ? resolveImgPath(gif) : '../assets/rua.gif'
+      var cur = gifEl.getAttribute('src')
+      if (cur !== want) gifEl.setAttribute('src', want)
+    } catch (err) {}
   }
 
   function resolveImgPath(p) {
@@ -565,9 +606,11 @@
 
   // ------------------------------------------------------------- 指针交互
   // 拖拽由渲染进程自己的 pointermove 驱动（与 DSH 原版一致）：
-  //   - 绝对定位：目标窗口位置 = 拖动起点窗口位置 + 指针位移（client 坐标）
-  //     —— 完全不依赖 screen.getCursorScreenPoint()（该 API 在 Linux/XWayland
-  //     上是事件缓存，实测会过期，曾导致拖不动/拖不到桌面四边）。
+  //   - 位移增量用 **e.movementX/movementY**（操作系统原始位移，窗口位置无关）：
+  //     client/screen 坐标在 Electron/X11 下与当前窗口位置耦合 —— 拖动中窗口
+  //     一动，坐标就平移，任何用「起点 + 坐标差」的公式都会反馈振荡（抽搐），
+  //     实测证实在本环境下 screenX 为 winPos+client 合成值，误差会指数放大。
+  //   - 兜底：movementX 全 0 时用 client 差分（合成/注入事件场景）。
   //   - setPointerCapture 保证指针移出窗口仍持续收到 pointermove/pointerup。
   //   - requestAnimationFrame 节流发送窗口位置（1:1 跟手）。
   var dragFrameId = null
@@ -584,8 +627,12 @@
       pointerId: e.pointerId,
       startX: e.clientX,
       startY: e.clientY,
-      startWinX: state.posX,
-      startWinY: state.posY,
+      lastClientX: e.clientX,
+      lastClientY: e.clientY,
+      appliedWinX: state.posX,
+      appliedWinY: state.posY,
+      targetX: state.posX,
+      targetY: state.posY,
       moved: false,
       wa: null,
     }
@@ -606,10 +653,28 @@
   function onDocPointerMove(e) {
     lastPointerMoveAt = Date.now()
     if (drag && drag.active) {
-      var dx = e.clientX - drag.startX
-      var dy = e.clientY - drag.startY
-      if (dx * dx + dy * dy >= CLICK_SQ) drag.moved = true
-      pendingDrag = { x: drag.startWinX + dx, y: drag.startWinY + dy }
+      // 原始位移增量（e.movementX/Y）：窗口位置无关，是拖动跟手且不抽搐的关键。
+      var mx = e.movementX
+      var my = e.movementY
+      if (typeof mx !== 'number' || !isFinite(mx)) mx = 0
+      if (typeof my !== 'number' || !isFinite(my)) my = 0
+      if (mx === 0 && my === 0) return // 指针未动（含窗口移动合成的回送事件）
+      // 一致性守卫：真实指针事件满足 Δclient ≈ movement − Δwindow。
+      // 窗口移动触发的“合成回送事件”会违背该关系（其 client 随窗口平移、
+      // 却携带了窗口位移量的 movement）→ 跳过，防止位移被重复累加（抽搐/飞走）。
+      var winDx = state.posX - drag.appliedWinX
+      var winDy = state.posY - drag.appliedWinY
+      var expectX = drag.lastClientX + mx - winDx
+      var expectY = drag.lastClientY + my - winDy
+      if (Math.abs(e.clientX - expectX) > 8 || Math.abs(e.clientY - expectY) > 8) return
+      var dxc = e.clientX - drag.startX
+      var dyc = e.clientY - drag.startY
+      if (dxc * dxc + dyc * dyc >= CLICK_SQ || Math.abs(mx) + Math.abs(my) > 2) drag.moved = true
+      drag.lastClientX = e.clientX
+      drag.lastClientY = e.clientY
+      drag.targetX += mx
+      drag.targetY += my
+      pendingDrag = { x: drag.targetX, y: drag.targetY }
       scheduleDragMove()
       return
     }
@@ -635,6 +700,11 @@
     if (!wa) return // workArea 未就绪：下一帧再处理（或使用已有坐标钳制）
     var x = clamp(tx, wa.x, wa.x + wa.width - state.winW)
     var y = clamp(ty, wa.y, wa.y + wa.height - state.winH)
+    // 以钳制后的位置为新的增量起点，避免溢出后越拖越远
+    drag.targetX = x
+    drag.targetY = y
+    drag.appliedWinX = x
+    drag.appliedWinY = y
     state.posX = x
     state.posY = y
     api.setWindowPos(x, y)
@@ -725,8 +795,8 @@
 
   function applySoundSet() {
     try {
-      var pressSrc = soundSet === 'fx1' ? '../assets/D1.mp3' : '../assets/Ya1.mp3'
-      var releaseSrc = soundSet === 'fx1' ? '../assets/D2.mp3' : '../assets/Ya2.mp3'
+      var pressSrc = pressSound ? resolveImgPath(pressSound) : (soundSet === 'fx1' ? '../assets/D1.mp3' : '../assets/Ya1.mp3')
+      var releaseSrc = releaseSound ? resolveImgPath(releaseSound) : (soundSet === 'fx1' ? '../assets/D2.mp3' : '../assets/Ya2.mp3')
       pressAudio = new Audio(pressSrc)
       pressAudio.preload = 'auto'
       pressAudio.volume = soundVol
@@ -822,6 +892,12 @@
     if (typeof c.mainImgPath === 'string' && c.mainImgPath.trim()) mainImgPath = c.mainImgPath.trim()
     if (typeof c.bubbleTextOk === 'string' && c.bubbleTextOk.trim()) bubbleTextOk = c.bubbleTextOk.trim().slice(0, 20)
     if (typeof c.bubbleTextLow === 'string' && c.bubbleTextLow.trim()) bubbleTextLow = c.bubbleTextLow.trim().slice(0, 20)
+    if (typeof c.textColorOk === 'string') textColorOk = /^#[0-9a-fA-F]{6}$/.test(c.textColorOk.trim()) ? c.textColorOk.trim() : ''
+    if (typeof c.textColorLow === 'string') textColorLow = /^#[0-9a-fA-F]{6}$/.test(c.textColorLow.trim()) ? c.textColorLow.trim() : ''
+    if (typeof c.peakTextOff === 'string') peakTextOff = c.peakTextOff.trim().slice(0, 12)
+    if (typeof c.peakTextOn === 'string') peakTextOn = c.peakTextOn.trim().slice(0, 12)
+    if (typeof c.pressSound === 'string') pressSound = c.pressSound.trim()
+    if (typeof c.releaseSound === 'string') releaseSound = c.releaseSound.trim()
     var interval = Math.round((typeof c.refreshInterval === 'number' ? c.refreshInterval : 60) * 1000)
     if (interval !== refreshIntervalMs) {
       refreshIntervalMs = interval
@@ -837,6 +913,7 @@
 
   // ------------------------------------------------------------- 外部事件
   api.onConfigChanged(function (c) { applyConfig(c, false) })
+  api.onCustomChanged(function (data) { applyCustom(data) })
   api.onRefresh(function () { refresh(true) })
 
   // ------------------------------------------------------------- 启动
@@ -853,6 +930,7 @@
     await initPosition()
     await applyConfig(c, true)
     setupHitTest()
+    api.getCustom().then(applyCustom).catch(function () {})
     refresh(false)
     refreshTimer = setInterval(function () { refresh(false) }, refreshIntervalMs)
     idleCheckTimer = setInterval(checkIdle, 1500)

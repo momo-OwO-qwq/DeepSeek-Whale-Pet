@@ -15,7 +15,7 @@ const balanceMod = require('./lib/balance')
 const IS_SMOKE = process.argv.includes('--smoke-test')
 const BASE_PX = 320
 const MENU_W = 376
-const MENU_H = 860
+const MENU_H = 700
 const LOW_NOTIFY_THROTTLE_MS = 30 * 60 * 1000
 
 // ---- Wayland：强制走 XWayland，否则 setPosition / 拖拽不可用 --------------
@@ -111,7 +111,6 @@ function createPetWindow() {
   petWin.loadFile(path.join(__dirname, 'renderer', 'pet.html'))
   petWin.once('ready-to-show', () => {
     if (!petWin) return
-    if (IS_SMOKE) petWin.setPosition(120, 120)
     petWin.showInactive()
   })
   petWin.on('closed', () => {
@@ -346,6 +345,7 @@ function registerIpc() {
     if (!petWin || petWin.isDestroyed()) return
     const x = Math.round(Number(msg && msg.x) || 0)
     const y = Math.round(Number(msg && msg.y) || 0)
+    if (process.env.WHALE_PET_TRACE === '1') console.log('[trace] set-pos', x, y, '->', JSON.stringify(petWin.getPosition()))
     petWin.setPosition(x, y)
   })
 
@@ -383,6 +383,75 @@ function registerIpc() {
     configMod.save(imagePatchFor(kind))
     broadcast('config:changed', configMod.getEffective())
     return { ok: true }
+  })
+
+  // ---------- 自定义音效上传（复制到配置目录，与源文件解耦）----------
+  const SOUND_KEY = { press: 'pressSound', release: 'releaseSound' }
+
+  ipcMain.handle('sound:pick', async (e, msg) => {
+    const which = msg && msg.which === 'release' ? 'release' : 'press'
+    try {
+      const res = await dialog.showOpenDialog(menuWin && !menuWin.isDestroyed() ? menuWin : undefined, {
+        title: which === 'release' ? '选择松手音效（mp3/wav/ogg…）' : '选择按压音效（mp3/wav/ogg…）',
+        filters: [{ name: '音频', extensions: ['mp3', 'wav', 'ogg', 'm4a', 'flac'] }],
+        properties: ['openFile'],
+      })
+      if (res.canceled || !res.filePaths || !res.filePaths[0]) return { ok: false, canceled: true }
+      const src = res.filePaths[0]
+      const soundsDir = path.join(configMod.CONFIG_DIR, 'sounds')
+      fs.mkdirSync(soundsDir, { recursive: true, mode: 0o700 })
+      const ext = (path.extname(src) || '.mp3').toLowerCase()
+      const dest = path.join(soundsDir, which + ext)
+      fs.copyFileSync(src, dest)
+      const patch = {}
+      patch[SOUND_KEY[which]] = dest
+      configMod.save(patch)
+      broadcast('config:changed', configMod.getEffective())
+      return { ok: true, path: dest }
+    } catch (err) {
+      return { ok: false, error: String((err && err.message) || err) }
+    }
+  })
+
+  ipcMain.handle('sound:reset', (e, msg) => {
+    const which = msg && msg.which === 'release' ? 'release' : 'press'
+    const patch = {}
+    patch[SOUND_KEY[which]] = ''
+    configMod.save(patch)
+    broadcast('config:changed', configMod.getEffective())
+    return { ok: true }
+  })
+
+  // ---------- 自定义随机台词 / 动图（~/.config/whale-pet/custom.json）----------
+  // 文件格式（README 有说明）：
+  //   { "lines": [{ "text": "...", "style": "A|B|P|C", "color": "#rrggbb" }], "gif": "/abs/path.gif" }
+  const CUSTOM_FILE = path.join(configMod.CONFIG_DIR, 'custom.json')
+
+  function readCustomFile() {
+    try {
+      const raw = JSON.parse(fs.readFileSync(CUSTOM_FILE, 'utf8'))
+      const lines = Array.isArray(raw.lines) ? raw.lines.slice(0, 20) : []
+      const out = []
+      for (const l of lines) {
+        if (!l || typeof l.text !== 'string') continue
+        out.push({
+          text: l.text.slice(0, 40),
+          style: ['A', 'B', 'P', 'C'].includes(String(l.style).toUpperCase()) ? String(l.style).toUpperCase() : 'A',
+          color: typeof l.color === 'string' && /^#[0-9a-fA-F]{3,8}$/.test(l.color.trim()) ? l.color.trim() : '',
+        })
+      }
+      return { lines: out, gif: typeof raw.gif === 'string' ? raw.gif.trim() : '' }
+    } catch (err) {
+      return { lines: [], gif: '' }
+    }
+  }
+
+  ipcMain.handle('custom:get', () => readCustomFile())
+
+  ipcMain.handle('custom:reload', () => {
+    const data = readCustomFile()
+    broadcast('custom:changed', data)
+    return data
   })
 
   // ---------- 透明像素点击穿透 ----------
@@ -445,43 +514,88 @@ async function runSmoke() {
   // 模拟拖拽（走真实输入管线：mouseDown → 系列 mouseMove → mouseUp），
   // 渲染进程 pointermove 驱动窗口移动 + 松手吸附。坐标必须保持在窗口内
   // （sendInputEvent 对窗口外坐标的行为不可控，会导致指针丢失）。
-  const simDrag = async (x1, y1, x2, y2, steps) => {
-    petWin.webContents.sendInputEvent({ type: 'mouseDown', x: x1, y: y1, button: 'left', clickCount: 1 })
-    for (let i = 1; i <= steps; i++) {
-      petWin.webContents.sendInputEvent({
-        type: 'mouseMove',
-        x: Math.round(x1 + ((x2 - x1) * i) / steps),
-        y: Math.round(y1 + ((y2 - y1) * i) / steps),
-        button: 'left',
-        buttons: 1,
-      })
-      await new Promise((r) => setTimeout(r, 25))
+  // 模拟拖拽：向渲染进程派发合成 PointerEvent（movementX/Y 由脚本显式给出 ——
+  // 与真实 X11 事件一致：movementX 是窗口位置无关的原始位移），
+  // 覆盖真实事件走到的同一段处理器代码（pointerdown → pointermove×N →
+  // pointerup → rAF 位移 → setWindowPos → 吸附）。
+  const dragTrace = []
+  const dispatchPtr = async (js) => {
+    await withTimeout(petWin.webContents.executeJavaScript(js, true), 2000, null)
+    await new Promise((r) => setTimeout(r, 45)) // 等 rAF 应用位置
+    const p = petWin.getPosition()
+    dragTrace.push({ x: p[0], y: p[1] })
+  }
+  const ptrDown = `(function(){document.dispatchEvent(new PointerEvent('pointerdown',{clientX:260,clientY:260,button:0,buttons:1,pointerId:7,pointerType:'mouse',isPrimary:true,bubbles:true,cancelable:true}))})()`
+  // 物理一致的合成事件：client 随指针真实位移变化（movementX 与 client 增量相匹配）
+  const ptrMove = (mx, my, cxi, cyi) => `(function(){document.dispatchEvent(new PointerEvent('pointermove',{clientX:${cxi},clientY:${cyi},movementX:${mx},movementY:${my},button:0,buttons:1,pointerId:7,pointerType:'mouse',isPrimary:true,bubbles:true,cancelable:true}))})()`
+  const ptrUp = `(function(){document.dispatchEvent(new PointerEvent('pointerup',{clientX:260,clientY:260,button:0,buttons:1,pointerId:7,pointerType:'mouse',isPrimary:true,bubbles:true,cancelable:true}))})()`
+
+  // 抽搐检测：拖拽轨迹上碎步位移必须单调同向（出现回摆即视为抽搐）
+  const monotonic = (trace, axis, from) => {
+    const signs = []
+    for (const p of trace) {
+      const d = p[axis] - from
+      if (Math.abs(d) < 2) continue
+      signs.push(d > 0 ? 1 : -1)
+      from = p[axis]
     }
-    petWin.webContents.sendInputEvent({ type: 'mouseUp', x: x2, y: y2, button: 'left', clickCount: 1 })
-    await new Promise((r) => setTimeout(r, 250))
+    for (let i = 1; i < signs.length; i++) if (signs[i] !== signs[0]) return false
+    return true
   }
   try {
     results.drag = {}
     const wa = await getWorkAreaForPet()
     results.drag.workArea = wa
+    results.drag.movementXProbe = await withTimeout(petWin.webContents.executeJavaScript('(function(){var e=new PointerEvent("pointermove",{movementX:-12,movementY:-20});return [e.movementX,e.movementY]})()', true), 2000, 'probe-timeout')
+    results.customFile = await withTimeout(petWin.webContents.executeJavaScript('window.whaleAPI.getCustom()', true), 2000, 'custom-timeout')
+    // 等渲染进程完成初始化定位（避免与 smoke 动作竞态）
+    const expectedInit = { x: wa.x + wa.width - petWin.getBounds().width, y: wa.y + wa.height - petWin.getBounds().height }
+    for (let i = 0; i < 50; i++) {
+      const p = petWin.getPosition()
+      if (Math.abs(p[0] - expectedInit.x) <= 2 && Math.abs(p[1] - expectedInit.y) <= 2) break
+      await new Promise((r) => setTimeout(r, 100))
+    }
 
-    // ① 常规拖拽：鲸鱼中心 → 窗内上移，验证 1:1 跟手
+    // ① 常规拖拽：每步 movement(-12,-20) × 8 → 位移 (-96,-160)，验证 1:1 跟手 + 不抽搐
     const before = petWin.getPosition()
-    await simDrag(260, 260, 160, 100, 8)
+    const traceStart = dragTrace.length
+    // 记录渲染进程实际收到的所有 pointermove（含窗口移动引发的回送事件）
+    await withTimeout(petWin.webContents.executeJavaScript(
+      "window.__mvLog=[];document.addEventListener('pointermove',function(e){window.__mvLog.push([e.movementX,e.movementY,e.clientX,e.clientY,Date.now()%100000])},true)", true), 2000, null)
+    await dispatchPtr(ptrDown)
+    for (let i = 0; i < 8; i++) {
+      // client 随累计指针位移递减（窗口尚未到位，指针相对窗口移动）
+      await dispatchPtr(ptrMove(-12, -20, 260 - 12 * (i + 1), 260 - 20 * (i + 1)))
+      await new Promise((r) => setTimeout(r, 35))
+    }
+    await dispatchPtr(ptrUp)
+    await new Promise((r) => setTimeout(r, 600))
     const c1 = petWin.getPosition()
+    results.drag.mvLog = await withTimeout(petWin.webContents.executeJavaScript('window.__mvLog.slice(0,40)', true), 2000, 'timeout')
+    const basicTrace = dragTrace.slice(traceStart)
+    const preSnap = basicTrace.slice(0, -1) // 最后一笔是松手吸附后的位置，不计入轨迹
     results.drag.basic = {
       before,
       after: { x: c1[0], y: c1[1] },
       moved: Math.hypot(c1[0] - before[0], c1[1] - before[1]) > 20,
+      noTwitch: monotonic(preSnap, 'x', before[0]) && monotonic(preSnap, 'y', before[1]),
+      // 净位移 = 注入的 movement 总和（x 吸附回右边缘时以贴边为准）
+      exact: Math.abs(c1[1] - (before[1] - 160)) <= 2,
     }
 
     // ② 连续向上拖 → 验证能贴到上边缘（用户报告的重点）。
-    // 注：窗口内注入的单次拖拽最多移动 ~260px，从右下角无法单次跨到左边缘四分之一
-    // 区（会被右吸附拉回）；左/右/下边缘与上边缘共用同一套 clamp+snap 代码。
-    for (let i = 0; i < 10; i++) {
+    // 注：窗口内单次拖拽移动有限，无法单次跨到左边缘四分之一区（会被右吸附拉回）；
+    // 左/右/下边缘与上边缘共用同一套 clamp+snap 代码。
+    for (let i = 0; i < 12; i++) {
       const p = petWin.getPosition()
       if (p[1] <= wa.y + 2) break
-      await simDrag(260, 260, 260, 60, 6)
+      await dispatchPtr(ptrDown)
+      for (let j = 0; j < 6; j++) {
+        await dispatchPtr(ptrMove(0, -200 / 6, 260, 260 - (200 / 6) * (j + 1)))
+        await new Promise((r) => setTimeout(r, 20))
+      }
+      await dispatchPtr(ptrUp)
+      await new Promise((r) => setTimeout(r, 100))
     }
     const c3 = petWin.getPosition()
     results.drag.topEdge = { after: { x: c3[0], y: c3[1] }, reached: Math.abs(c3[1] - wa.y) <= 2 }

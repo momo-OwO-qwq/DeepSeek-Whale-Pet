@@ -225,6 +225,16 @@ test('config: 消毒 / 原子保存 / 环境变量覆盖', () => {
   assert.strictEqual(s5.theme, 'system', '非法主题回退')
   assert.strictEqual(s5.bubbleTextOk, 'DeepSeek 余额', '空白文案回退默认')
 
+  // 文案颜色 / 峰谷自定义 / 自定义音效
+  const s6 = config.sanitize({ textColorOk: '#ff8800', textColorLow: 'red', peakTextOff: '  谷  ', peakTextOn: '峰峰峰峰峰峰峰峰峰峰峰峰峰', pressSound: '/tmp/a.mp3', releaseSound: '  ' })
+  assert.strictEqual(s6.textColorOk, '#ff8800')
+  assert.strictEqual(s6.textColorLow, '', '非法颜色回退空')
+  assert.strictEqual(s6.peakTextOff, '谷', 'trim')
+  assert.ok(s6.peakTextOn.length <= 12, '峰谷文案限 12 字符, got ' + s6.peakTextOn.length)
+  assert.strictEqual(s6.pressSound, '/tmp/a.mp3')
+  assert.strictEqual(s6.releaseSound, '', '空白音效路径回退空')
+  assert.strictEqual(config.sanitize({}).pressSound, '', '自定义音效默认关闭')
+
   // 保存 + 读回
   const saved = config.save({ apiKey: 'sk-123', scale: 1.7, volume: 0.5 })
   assert.strictEqual(saved.apiKey, 'sk-123')

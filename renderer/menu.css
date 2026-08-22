@@ -1,4 +1,4 @@
-/* 设置窗口样式：白色/深色圆角卡片（htmldata-theme 切换），风格与原版汉堡菜单一致 */
+/* 设置窗口样式：分区卡片布局（html[data-theme] 切换 浅色/深色） */
 :root {
   --wm-card-bg: rgba(255, 255, 255, .97);
   --wm-fg: #203170;
@@ -10,19 +10,21 @@
   --wm-accent: #203170;
   --wm-accent-hover: #2c4390;
   --wm-btn-primary-fg: #fff;
+  --wm-sec-fg: #536ba9;
   color-scheme: light;
 }
 html[data-theme="dark"] {
   --wm-card-bg: rgba(30, 34, 48, .97);
-  --wm-fg: #cdd6f4;
+  --wm-fg: #c7d0ee;
   --wm-border: rgba(205, 214, 244, .3);
   --wm-input-fg: #e6e9f5;
   --wm-input-bg: rgba(255, 255, 255, .07);
-  --wm-input-accent: rgba(255, 255, 255, .14);
+  --wm-input-accent: rgba(255, 255, 255, .12);
   --wm-hint: #8a93b8;
   --wm-accent: #89b4fa;
   --wm-accent-hover: #a4c7ff;
   --wm-btn-primary-fg: #1e2230;
+  --wm-sec-fg: #89b4fa;
   color-scheme: dark;
 }
 
@@ -43,7 +45,7 @@ html, body {
   background: var(--wm-card-bg);
   border: 1px solid var(--wm-border);
   border-radius: 12px;
-  padding: 12px 14px 10px;
+  padding: 10px 14px 10px;
   box-shadow: 0 6px 18px rgba(0, 0, 0, .18);
   overflow-y: auto;
   box-sizing: border-box;
@@ -55,7 +57,7 @@ html, body {
   justify-content: space-between;
   font-size: 14px;
   font-weight: 700;
-  margin-bottom: 6px;
+  margin-bottom: 2px;
   color: var(--wm-fg);
 }
 
@@ -70,11 +72,34 @@ html, body {
 }
 .wm-x:hover { color: #e0433f; }
 
+/* 分区标题 */
+.wm-sec {
+  margin: 10px 0 2px;
+  padding-top: 6px;
+  border-top: 1px solid var(--wm-border);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .08em;
+  color: var(--wm-sec-fg);
+}
+.wm-sec:first-of-type { margin-top: 4px; }
+
+/* 双列网格（短行） */
+.wm-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  column-gap: 10px;
+  row-gap: 2px;
+  align-items: center;
+}
+.wm-grid .wm-row { margin: 2px 0; }
+.wm-span { grid-column: 1 / -1; }
+
 .wm-row {
   display: flex;
   align-items: center;
-  gap: 8px;
-  margin: 7px 0;
+  gap: 6px;
+  margin: 6px 0;
   font-size: 12px;
   white-space: nowrap;
   color: var(--wm-fg);
@@ -93,12 +118,15 @@ html, body {
   background: var(--wm-input-bg);
   box-sizing: border-box;
 }
-.wm-row input[type="number"] { flex: 0 0 64px; width: 64px; }
-.wm-row select { padding: 3px 2px; background: var(--wm-input-accent); cursor: pointer; }
+.wm-row input::placeholder { color: var(--wm-hint); opacity: .8; }
+.wm-row input[type="number"] { flex: 0 0 52px; width: 52px; }
+.wm-row select { padding: 3px 2px; background: var(--wm-input-accent); cursor: pointer; color: var(--wm-input-fg); }
 
+.wm-grid .wm-label { flex: 0 0 auto; min-width: 44px; }
 .wm-label { flex: 0 0 62px; }
 
-.wm-key .wm-fill { flex: 1; min-width: 0; }
+.wm-key .wm-fill,
+.wm-row .wm-fill { flex: 1; min-width: 0; }
 .wm-inline { display: flex; gap: 4px; }
 .wm-inline input { flex: 1; min-width: 0; }
 .wm-mini {
@@ -111,9 +139,9 @@ html, body {
   padding: 2px 6px;
   font-size: 12px;
 }
-.wm-mini:hover { background: var(--wm-input-accent); filter: brightness(1.15); }
+.wm-mini:hover { filter: brightness(1.15); }
 .wm-note {
-  margin-top: 3px;
+  margin: 2px 0 4px;
   font-size: 10.5px;
   color: var(--wm-hint);
   white-space: normal;
@@ -127,8 +155,18 @@ html, body {
 .wm-val { width: 40px; text-align: right; font-size: 12px; }
 .wm-check { width: 16px; height: 16px; accent-color: var(--wm-accent); cursor: pointer; flex: 0 0 auto; }
 .wm-unit { color: var(--wm-hint); }
+.wm-row input[type="color"] {
+  flex: 0 0 26px;
+  width: 26px;
+  height: 22px;
+  border: 1px solid var(--wm-border);
+  border-radius: 5px;
+  padding: 0;
+  background: transparent;
+  cursor: pointer;
+}
 
-.wm-actions { margin-top: 4px; }
+.wm-actions { margin-top: 8px; }
 .wm-btn {
   flex: 1;
   border: 1px solid var(--wm-border);
@@ -136,11 +174,14 @@ html, body {
   background: var(--wm-input-accent);
   color: var(--wm-fg);
   font-size: 12px;
-  padding: 6px 0;
+  padding: 5px 0;
   cursor: pointer;
+  white-space: nowrap;
 }
 .wm-btn:hover { filter: brightness(1.12); }
 .wm-btn-primary { background: var(--wm-accent); color: var(--wm-btn-primary-fg); }
+.wm-btn:disabled { opacity: .5; cursor: not-allowed; }
+.wm-btn-mini { flex: 0 0 auto; padding: 5px 8px; }
 
 .wm-foot {
   margin-top: 6px;

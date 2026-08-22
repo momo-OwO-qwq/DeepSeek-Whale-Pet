@@ -2,6 +2,7 @@
  * 设置窗口（menu.html）—— 渲染进程逻辑
  * 所有控件修改都通过 whaleAPI.setConfig() 持久化；
  * 主进程会把 config:changed 广播给鲸鱼窗口（实时应用）。
+ * 自绘主题：跟随系统（matchMedia 监听）/ 浅色 / 深色。
  * ========================================================================== */
 (function () {
   'use strict'
@@ -11,36 +12,25 @@
   var $ = function (id) { return document.getElementById(id) }
 
   var els = {
-    close: $('wm-close'),
-    done: $('wm-done'),
+    close: $('wm-close'), done: $('wm-done'),
     theme: $('wm-theme'),
-    apiKey: $('wm-apikey'),
-    apiKeyEye: $('wm-apikey-eye'),
-    apiKeyNote: $('wm-apikey-note'),
-    token: $('wm-token'),
-    tokenEye: $('wm-token-eye'),
-    usage: $('wm-usage'),
-    scale: $('wm-scale'),
-    scaleV: $('wm-scale-v'),
-    sound: $('wm-sound'),
-    vol: $('wm-vol'),
-    volV: $('wm-vol-v'),
-    peak: $('wm-peak'),
-    peakText: $('wm-peaktext'),
-    bubble: $('wm-bubble'),
-    idleFade: $('wm-idlefade'),
-    refresh: $('wm-refresh'),
-    threshold: $('wm-threshold'),
+    apiKey: $('wm-apikey'), apiKeyEye: $('wm-apikey-eye'), apiKeyNote: $('wm-apikey-note'),
+    token: $('wm-token'), tokenEye: $('wm-token-eye'),
+    usage: $('wm-usage'), refresh: $('wm-refresh'), threshold: $('wm-threshold'), autostart: $('wm-autostart'),
+    bubble: $('wm-bubble'), idleFade: $('wm-idlefade'),
+    scale: $('wm-scale'), scaleV: $('wm-scale-v'),
+    peak: $('wm-peak'), peakText: $('wm-peaktext'), peakOff: $('wm-peak-off'), peakOn: $('wm-peak-on'),
+    textOk: $('wm-text-ok'), textLow: $('wm-text-low'),
+    colorOk: $('wm-color-ok'), colorLow: $('wm-color-low'),
+    colorOkReset: $('wm-color-ok-reset'), colorLowReset: $('wm-color-low-reset'),
+    sound: $('wm-sound'), vol: $('wm-vol'), volV: $('wm-vol-v'),
+    pressPick: $('wm-press-pick'), pressReset: $('wm-press-reset'),
+    releasePick: $('wm-release-pick'), releaseReset: $('wm-release-reset'),
+    soundNote: $('wm-sound-note'),
     alertImage: $('wm-alertimage'),
-    mainPick: $('wm-main-pick'),
-    mainReset: $('wm-main-reset'),
-    mainNote: $('wm-main-note'),
-    alertPick: $('wm-alert-pick'),
-    alertReset: $('wm-alert-reset'),
-    alertNote: $('wm-alert-note'),
-    textOk: $('wm-text-ok'),
-    textLow: $('wm-text-low'),
-    autostart: $('wm-autostart'),
+    mainPick: $('wm-main-pick'), mainReset: $('wm-main-reset'), mainNote: $('wm-main-note'),
+    alertPick: $('wm-alert-pick'), alertReset: $('wm-alert-reset'), alertNote: $('wm-alert-note'),
+    customReload: $('wm-custom-reload'), customNote: $('wm-custom-note'),
     refreshNow: $('wm-refresh-now'),
   }
 
@@ -50,10 +40,9 @@
     saveTimer = setTimeout(function () { api.setConfig(patch) }, ms || 150)
   }
 
+  // ---------- 主题（跟随系统） ----------
   var currentCfg = null
   var systemDark = window.matchMedia('(prefers-color-scheme: dark)')
-
-  // 深色模式：theme = system | light | dark（跟随系统时监听系统变化）
   function applyTheme(cfg) {
     var dark = cfg && (cfg.theme === 'dark' || (cfg.theme !== 'light' && systemDark.matches))
     document.documentElement.dataset.theme = dark ? 'dark' : 'light'
@@ -78,23 +67,28 @@
     els.apiKey.value = cfg.apiKey || ''
     els.token.value = cfg.platformToken || ''
     els.usage.value = cfg.usageMode || 'ledger'
+    els.refresh.value = String(cfg.refreshInterval || 60)
+    els.threshold.value = String(cfg.lowBalanceThreshold != null ? cfg.lowBalanceThreshold : 10)
+    els.autostart.checked = !!cfg.autostart
+    els.bubble.checked = cfg.bubbleOn !== false
+    els.idleFade.checked = cfg.idleFade !== false
     els.scale.value = String(cfg.scale || 1)
     els.scaleV.textContent = (cfg.scale || 1).toFixed(1)
+    els.peak.value = cfg.peakMode || 'default'
+    els.peakText.checked = cfg.peakText !== false
+    els.peakOff.value = cfg.peakTextOff || ''
+    els.peakOn.value = cfg.peakTextOn || ''
+    els.textOk.value = cfg.bubbleTextOk || 'DeepSeek 余额'
+    els.textLow.value = cfg.bubbleTextLow || '余额预警'
+    els.colorOk.value = /^#[0-9a-fA-F]{6}$/.test(cfg.textColorOk || '') ? cfg.textColorOk : '#536ba9'
+    els.colorLow.value = /^#[0-9a-fA-F]{6}$/.test(cfg.textColorLow || '') ? cfg.textColorLow : '#e0433f'
     els.sound.value = cfg.soundSet || 'duck'
     els.vol.value = String(cfg.volume != null ? cfg.volume : 0.8)
     els.volV.textContent = Math.round((cfg.volume != null ? cfg.volume : 0.8) * 100) + '%'
-    els.peak.value = cfg.peakMode || 'default'
-    els.peakText.checked = cfg.peakText !== false
-    els.bubble.checked = cfg.bubbleOn !== false
-    els.idleFade.checked = cfg.idleFade !== false
-    els.refresh.value = String(cfg.refreshInterval || 60)
-    els.threshold.value = String(cfg.lowBalanceThreshold != null ? cfg.lowBalanceThreshold : 10)
     els.alertImage.checked = cfg.alertImage === true
-    els.mainNote.textContent = imgPathNote(cfg.mainImgPath || 'assets/DSniang1.png')
-    els.alertNote.textContent = imgPathNote(cfg.alertImgPath || 'assets/DSniang02.png')
-    els.textOk.value = cfg.bubbleTextOk || 'DeepSeek 余额'
-    els.textLow.value = cfg.bubbleTextLow || '余额预警'
-    els.autostart.checked = !!cfg.autostart
+    els.mainNote.textContent = '主图：' + imgPathNote(cfg.mainImgPath || 'assets/DSniang1.png')
+    els.alertNote.textContent = '预警图：' + imgPathNote(cfg.alertImgPath || 'assets/DSniang02.png')
+    els.soundNote.textContent = '自定义音效优先级高于音效集；音源保存在 ~/.config/whale-pet/sounds/'
     if (cfg.apiKeySource === 'env') {
       els.apiKeyNote.textContent = '当前使用环境变量 DEEPSEEK_API_KEY（此处可覆盖文件配置）'
       els.apiKeyNote.className = 'wm-note wm-note-ok'
@@ -141,7 +135,7 @@
       eye.textContent = input.type === 'password' ? '👁' : '🙈'
     })
     input.addEventListener('keydown', function (e) {
-      if (e.key === 'Enter') { input.blur() }
+      if (e.key === 'Enter') input.blur()
     })
     input.addEventListener('change', function () {
       var patch = {}
@@ -156,27 +150,14 @@
   els.theme.addEventListener('change', function () {
     api.setConfig({ theme: els.theme.value }).then(function (cfg) { applyTheme(cfg || { theme: els.theme.value }) })
   })
-  els.usage.addEventListener('change', function () {
-    api.setConfig({ usageMode: els.usage.value })
-  })
-  els.sound.addEventListener('change', function () {
-    api.setConfig({ soundSet: els.sound.value })
-  })
-  els.peak.addEventListener('change', function () {
-    api.setConfig({ peakMode: els.peak.value })
-  })
-  els.peakText.addEventListener('change', function () {
-    api.setConfig({ peakText: els.peakText.checked })
-  })
-  els.bubble.addEventListener('change', function () {
-    api.setConfig({ bubbleOn: els.bubble.checked })
-  })
-  els.idleFade.addEventListener('change', function () {
-    api.setConfig({ idleFade: els.idleFade.checked })
-  })
-  els.autostart.addEventListener('change', function () {
-    api.setConfig({ autostart: els.autostart.checked })
-  })
+  els.usage.addEventListener('change', function () { api.setConfig({ usageMode: els.usage.value }) })
+  els.sound.addEventListener('change', function () { api.setConfig({ soundSet: els.sound.value }) })
+  els.peak.addEventListener('change', function () { api.setConfig({ peakMode: els.peak.value }) })
+  els.peakText.addEventListener('change', function () { api.setConfig({ peakText: els.peakText.checked }) })
+  els.bubble.addEventListener('change', function () { api.setConfig({ bubbleOn: els.bubble.checked }) })
+  els.idleFade.addEventListener('change', function () { api.setConfig({ idleFade: els.idleFade.checked }) })
+  els.autostart.addEventListener('change', function () { api.setConfig({ autostart: els.autostart.checked }) })
+  els.alertImage.addEventListener('change', function () { api.setConfig({ alertImage: els.alertImage.checked }) })
 
   // ---------- 滑块（实时预览 + 防抖保存） ----------
   els.scale.addEventListener('input', function () {
@@ -200,11 +181,40 @@
     els.threshold.value = String(v)
     api.setConfig({ lowBalanceThreshold: v })
   })
-  els.alertImage.addEventListener('change', function () {
-    api.setConfig({ alertImage: els.alertImage.checked })
+
+  // ---------- 峰谷自定义文案（留空 = 用内置/峰谷模式） ----------
+  els.peakOff.addEventListener('change', function () {
+    els.peakOff.value = els.peakOff.value.slice(0, 12)
+    api.setConfig({ peakTextOff: els.peakOff.value.trim() })
+  })
+  els.peakOn.addEventListener('change', function () {
+    els.peakOn.value = els.peakOn.value.slice(0, 12)
+    api.setConfig({ peakTextOn: els.peakOn.value.trim() })
   })
 
-  // ---------- 主图 / 预警图上传（复制到配置目录，与源文件解耦）----------
+  // ---------- 气泡文案 + 颜色 ----------
+  els.textOk.addEventListener('change', function () {
+    els.textOk.value = els.textOk.value.slice(0, 20)
+    api.setConfig({ bubbleTextOk: els.textOk.value.trim() })
+  })
+  els.textLow.addEventListener('change', function () {
+    els.textLow.value = els.textLow.value.slice(0, 20)
+    api.setConfig({ bubbleTextLow: els.textLow.value.trim() })
+  })
+  els.colorOk.addEventListener('input', function () {
+    api.setConfig({ textColorOk: els.colorOk.value })
+  })
+  els.colorLow.addEventListener('input', function () {
+    api.setConfig({ textColorLow: els.colorLow.value })
+  })
+  els.colorOkReset.addEventListener('click', function () {
+    api.setConfig({ textColorOk: '' }).then(function () { reload() })
+  })
+  els.colorLowReset.addEventListener('click', function () {
+    api.setConfig({ textColorLow: '' }).then(function () { reload() })
+  })
+
+  // ---------- 主图 / 预警图 上传 ----------
   function bindImagePicker(pickBtn, resetBtn, kind, noteEl) {
     pickBtn.addEventListener('click', async function () {
       pickBtn.disabled = true
@@ -226,25 +236,51 @@
     })
     resetBtn.addEventListener('click', async function () {
       resetBtn.disabled = true
-      try {
-        await api.resetImage(kind)
-        await reload()
-      } finally {
-        resetBtn.disabled = false
-      }
+      try { await api.resetImage(kind); await reload() } finally { resetBtn.disabled = false }
     })
   }
   bindImagePicker(els.mainPick, els.mainReset, 'main', els.mainNote)
   bindImagePicker(els.alertPick, els.alertReset, 'alert', els.alertNote)
 
-  // ---------- 气泡文案（限 20 字符，其余由 config 消毒/截断）----------
-  els.textOk.addEventListener('change', function () {
-    els.textOk.value = els.textOk.value.slice(0, 20)
-    api.setConfig({ bubbleTextOk: els.textOk.value.trim() })
-  })
-  els.textLow.addEventListener('change', function () {
-    els.textLow.value = els.textLow.value.slice(0, 20)
-    api.setConfig({ bubbleTextLow: els.textLow.value.trim() })
+  // ---------- 自定义音效（按压/松手） ----------
+  function bindSoundPicker(pickBtn, resetBtn, which) {
+    pickBtn.addEventListener('click', async function () {
+      pickBtn.disabled = true
+      try {
+        var r = await api.pickSound(which)
+        if (r && r.ok) {
+          els.soundNote.textContent = (which === 'release' ? '松手' : '按压') + '音效已设置：' + r.path
+          els.soundNote.className = 'wm-note wm-note-ok'
+        } else if (r && !r.canceled) {
+          els.soundNote.textContent = '选择失败：' + ((r && r.error) || '未知错误')
+          els.soundNote.className = 'wm-note wm-note-warn'
+        }
+      } catch (err) {
+        els.soundNote.textContent = '选择失败：' + String((err && err.message) || err)
+        els.soundNote.className = 'wm-note wm-note-warn'
+      } finally {
+        pickBtn.disabled = false
+      }
+    })
+    resetBtn.addEventListener('click', async function () {
+      resetBtn.disabled = true
+      try { await api.resetSound(which); await reload() } finally { resetBtn.disabled = false }
+    })
+  }
+  bindSoundPicker(els.pressPick, els.pressReset, 'press')
+  bindSoundPicker(els.releasePick, els.releaseReset, 'release')
+
+  // ---------- 自定义随机台词/动图（custom.json） ----------
+  els.customReload.addEventListener('click', async function () {
+    els.customReload.disabled = true
+    try {
+      var d = await api.reloadCustom()
+      var n = d && d.lines ? d.lines.length : 0
+      els.customNote.textContent = (n > 0 ? '已载入 ' + n + ' 条自定义台词' + (d.gif ? ' + 自定义动图' : '') : 'custom.json 未配置或为空')
+      els.customNote.className = 'wm-note ' + (n > 0 ? 'wm-note-ok' : '')
+    } finally {
+      els.customReload.disabled = false
+    }
   })
 
   // ---------- 立即刷新 ----------
@@ -254,11 +290,10 @@
     try {
       var r = await api.getBalance()
       els.refreshNow.textContent = r && r.ok ? '已刷新 ✓' : '失败 ✗'
-      setTimeout(function () { els.refreshNow.textContent = '立即刷新'; els.refreshNow.disabled = false }, 1200)
     } catch (err) {
       els.refreshNow.textContent = '失败 ✗'
-      setTimeout(function () { els.refreshNow.textContent = '立即刷新'; els.refreshNow.disabled = false }, 1200)
     }
+    setTimeout(function () { els.refreshNow.textContent = '立即刷新'; els.refreshNow.disabled = false }, 1200)
   })
 
   reload().catch(function (err) { console.error('[menu] load failed', err) })
