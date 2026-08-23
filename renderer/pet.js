@@ -204,14 +204,17 @@
       } else if (g.type === 'gif') {
         pool.push({ w: weight, lines: function () { return { gif: true } } })
       } else if (g.lines && g.lines.length) {
-        pool.push({ w: weight, lines: function () {
-          var out = [null, null, null]
-          for (var j = 0; j < 3 && j < g.lines.length; j++) {
-            var l = g.lines[j]
-            out[j] = { t: l.text, s: l.style, c: l.color || '', w: !!l.wrap }
+        // 用 IIFE 把当前组 g 绑定进闭包（否则 var g 会让所有文本组都返回最后一组内容）
+        pool.push({ w: weight, lines: (function (grp) {
+          return function () {
+            var out = [null, null, null]
+            for (var j = 0; j < 3 && j < grp.lines.length; j++) {
+              var l = grp.lines[j]
+              out[j] = { t: l.text, s: l.style, c: l.color || '', w: !!l.wrap }
+            }
+            return out
           }
-          return out
-        } })
+        })(g) })
       }
     }
     if (!pool.length) pool = [{ w: 45, lines: buildGroup1 }]
