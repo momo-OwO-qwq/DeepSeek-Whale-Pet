@@ -287,8 +287,9 @@ test('lines: 首次读取自动生成默认池 / 消毒 / 空池回退', () => {
     ],
   })
   assert.strictEqual(s.groups.length, 2)
-  assert.strictEqual(s.groups[0].lines[0].text.length, 40)
-  assert.strictEqual(s.groups[0].lines[0].style, 'A')
+  // 旧格式 lines → 展开为独立单条组（无 .lines，直接 .text）
+  assert.strictEqual(s.groups[0].text.length, 40)
+  assert.strictEqual(s.groups[0].style, 'A')
   assert.strictEqual(s.groups[1].type, 'balance')
   // 空池回退默认
   assert.ok(lines.sanitizePool({ groups: [] }).groups.length > 0)

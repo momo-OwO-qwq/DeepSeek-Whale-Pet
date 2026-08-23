@@ -121,7 +121,7 @@ petWin.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
 | 数字滚动 | 700ms ease-out 三次方（requestAnimationFrame） |
 | 变化提示 | 变化 900ms 内先弹气泡再滚数字（300ms 延迟起滚） |
 | 气泡展开 | bshape/b1/b2 依次延迟 0/0.13/0.26s，收起 5s 自动 |
-| 随机台词 | 加权池：峰谷组 45、好模型 7、卖萌吐槽 7、gif 10、梗 3、哦鲸鲸 1 |
+| 随机台词 | 加权池：每条台词独立成组、权重默认相等（balance/gif 各 1 条特组 + 每条台词 1 条）；气泡每次只弹一条 |
 | 呼吸动画 | 2s 正弦 1.00→1.02→1.00（CSS keyframes，拖拽时暂停） |
 | 闲置半透明 | 指针离开 3s → 渐隐到可调不透明度（默认 0.6，0.2–1.0，经 `--wp-idle-opacity`） |
 | 情绪表情 | 已移除（主界面不再叠加表情 emoji） |
@@ -149,7 +149,7 @@ petWin.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
 ### 4.9 自定义音效 + 随机台词/动图池 + 去 Emoji
 
 - **自定义音效**：`pressSound` / `releaseSound`（路径或空）；设置窗「上传」→ 主进程文件对话框（mp3/wav/ogg/m4a/flac）→ 复制到 `~/.config/whale-pet/sounds/{press,release}.*` → 写回绝对路径；非空时覆盖当前音效集的按压/松手音源。
-- **lines.json（含全部默认值）**：`~/.config/whale-pet/lines.json` —— **随机台词/动图池完全移出渲染进程代码**，首次访问由主进程写入默认池（与原版权重一致的 6 组），用户可自由编辑后「重载」（`custom:get`/`custom:reload` 广播 `custom:changed`）。格式：`{ gif, groups: [ {weight, type: balance|gif} | {weight, lines:[{text≤40, style A|B|P|C, wrap?, color?}×≤3]} ... ] }`；空池回退默认。
+- **lines.json（含全部默认值）**：`~/.config/whale-pet/lines.json` —— **随机台词/动图池完全移出渲染进程代码**，首次访问由主进程写入默认池（每条台词独立成组、权重默认相等），用户可自由编辑后「重载」（`custom:get`/`custom:reload` 广播 `custom:changed`）。格式：`{ gif, groups: [ {weight, type: balance|gif} | {weight, text≤40, style A|B|P|C, wrap?, color?} ... ] }`；兼容旧格式（一组多条 `lines`）会自动展开为每条独立等权组；空池回退默认。
 - **去 Emoji**：主界面（鲸鱼窗口）的情绪表情覆盖层（💤/😭/🥺）已整体移除；预警状态仅保留「预警图切换 + `!` 徽标」文字提示；菜单标题/眼睛按钮/通知标题的 emoji 一并清除。当前界面不含任何表情 emoji。
 - **默认值**：低余额阈值 5 元；音量 100%；鲸鱼大小 1.0；闲置不透明度 0.6；音效方案「音效1」（duck，Ya1/Ya2）默认选中，「音效2」为 fx1（D1/D2）。
 

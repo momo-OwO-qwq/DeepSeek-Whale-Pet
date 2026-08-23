@@ -178,11 +178,15 @@
       if (peakMode === 'liangwen') { offText = '梁文谷'; peakTextStr = '梁文峰' }
       else if (peakMode === 'qiangqiang') { offText = '!?谷谷?!'; peakTextStr = '!?峰峰?!' }
     }
-    // 单行输出：随机气泡不再一次性堆叠多行文字（用户反馈 bug）
+    // 峰谷：恢复原来的多行展示（当前时间段 / 高峰·空闲 / 今日已用）
     if (!peakText) {
-      return singleCenter('C', '今日已用 ' + fmt(state.todayUsage, state.currency), '', false)
+      return [{ t: '今日已用 ' + fmt(state.todayUsage, state.currency), s: 'C', c: '' }]
     }
-    return singleCenter('P', peak ? peakTextStr : offText, peak ? '#e0433f' : '#2fa24c', false)
+    return [
+      { t: '当前时间段为:', s: 'A', c: '' },
+      { t: peak ? peakTextStr : offText, s: 'P', c: peak ? '#e0433f' : '#2fa24c' },
+      { t: '今日已用 ' + fmt(state.todayUsage, state.currency), s: 'C', c: '' },
+    ]
   }
 
   // 随机台词池完全来自 ~/.config/whale-pet/lines.json（含默认值，主进程首次
@@ -200,9 +204,13 @@
         pool.push({ w: weight, lines: buildGroup1 })
       } else if (g.type === 'gif') {
         pool.push({ w: weight, lines: function () { return { gif: true } } })
+      } else if (g.text && String(g.text).trim()) {
+        // 新格式：单条台词独立成组，气泡每次只弹这一条（避免多行同时输出）
+        pool.push({ w: weight, lines: (function (grp) {
+          return function () { return singleCenter(grp.style, grp.text, grp.color, grp.wrap) }
+        })(g) })
       } else if (g.lines && g.lines.length) {
-        // 用 IIFE 把当前组 g 绑定进闭包（否则 var g 会让所有文本组都返回最后一组内容）
-        // 每组每次随机抽 1 条台词，避免气泡一次输出多行文字（用户反馈 bug）
+        // 兼容旧格式（一组多条 lines）：随机抽 1 条
         pool.push({ w: weight, lines: (function (grp) {
           return function () {
             var l = grp.lines[Math.floor(Math.random() * grp.lines.length)]

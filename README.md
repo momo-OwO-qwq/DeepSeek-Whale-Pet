@@ -72,23 +72,24 @@ npm start
 
 ## 自定义随机台词与动图（lines.json）
 
-`~/.config/whale-pet/lines.json`（**首次运行自动生成，含全部默认台词与权重**），修改后在 设置 → 图片台词 → **重载**：
+`~/.config/whale-pet/lines.json`（**首次运行自动生成，含全部默认台词与等值权重**），修改后在 设置 → 图片台词 → **重载**：
 
 ```json
 {
   "gif": "",
   "groups": [
-    { "weight": 45, "type": "balance" },
-    { "weight": 7, "lines": [{ "text": "好模型... ↓", "style": "B" }, { "text": "好女孩...↓", "style": "B" }] },
-    { "weight": 10, "type": "gif" },
-    { "weight": 3, "lines": [{ "text": "自定义台词", "style": "A", "wrap": true, "color": "#ff8800" }] }
+    { "weight": 1, "type": "balance" },
+    { "weight": 1, "type": "gif" },
+    { "weight": 1, "text": "好模型... ↓", "style": "B" },
+    { "weight": 1, "text": "自定义台词", "style": "A", "wrap": true, "color": "#ff8800" }
   ]
 }
 ```
 
-- `groups`：随机组，按 `weight` 加权抽取（最多 12 组）；`type: "balance"` = 动态组（峰谷时段+今日已用）、`type: "gif"` = 动图组；`lines` 组最多 3 行（不足补空、超出截断）
+- `groups`：随机组，按 `weight` 加权抽取（默认所有权重相等）；`type: "balance"` = 动态组（峰谷时段+今日已用，多行展示）、`type: "gif"` = 动图组；**每条台词用一条 `text` 独立成组**，气泡每次只弹其中一条
 - 条目字段：`text` 限 40 字符；`style` 取值 `A`（标签）/`B`（大字金额位）/`P`（峰谷大字）/`C`（提示行）；`wrap` 是否自动换行；`color` 可选（`#rrggbb`）
 - `gif`：自定义动图路径（绝对路径或 http(s)），可留空；存在时替换内置 `rua.gif`
+- 兼容旧格式（一组多条 `lines`）：读取时会自动展开为每条独立等权组
 
 ## 配置与数据
 
