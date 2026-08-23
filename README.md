@@ -1,4 +1,4 @@
-# DeepSeek 余额小鲸鱼桌宠（Linux / Windows 独立版）
+# DeepSeek 余额小鲸鱼桌宠（DeepSeek Whale Pet · Linux / Windows / macOS）
 
 ![DeepSeek 余额小鲸鱼](assets/DSH2.png)
 
@@ -26,12 +26,12 @@
 - 🗔 **原生设置窗口 + Tab 标签页**：系统标题栏的独立设置窗，账户/数据/外观/文案/音效/图片 六个标签页分区管理；各配置文件路径均可「点击直接打开」
 - ⚙️ **汉堡菜单**（悬停鲸鱼右上角出现 / 右键鲸鱼）：全部设置项一站式调整
 - 🧰 **系统集成**：托盘图标（显示/隐藏/刷新/设置/自启/退出）、全局热键 `Ctrl+Shift+R` 刷新、**开机自启**（Linux XDG autostart / Windows 登录项）、**单实例**
-- 🔐 配置安全：API Key 保存于 `~/.config/whale-pet/config.json`（Linux 目录 0700 / 文件 0600；Windows 为 `%APPDATA%/whale-pet`）；支持环境变量 `DEEPSEEK_API_KEY` / `DEEPSEEK_PLATFORM_TOKEN` 覆盖
+- 🔐 配置安全：API Key 保存于 `~/.config/whale-pet/config.json`（Linux 目录 0700 / 文件 0600；Windows `%APPDATA%/whale-pet`；macOS `~/Library/Application Support/whale-pet`）；支持环境变量 `DEEPSEEK_API_KEY` / `DEEPSEEK_PLATFORM_TOKEN` 覆盖
 
 ## 快速开始
 
 ```bash
-cd DeepSeek-Balance-Whale-Widget-Linux
+cd DeepSeek-Whale-Pet
 npm install
 npm start
 ```
@@ -68,7 +68,7 @@ npm start
 | **随机台词**（文案页） | 「重新载入」读取 `lines.json`（启动时自动生成默认值）；「打开文件」直接用系统编辑器打开 |
 | **按压 / 松手音效** | 分别上传自定义音源（复制到 `~/.config/whale-pet/sounds/`，优先级高于音效集） |
 | **主题** | 设置面板深色模式：跟随系统 / 浅色 / 深色 |
-| **开机自启** | 写入 `~/.config/autostart/deepseek-balance-whale-pet.desktop` |
+| **开机自启** | 写入 `~/.config/autostart/deepseek-whale-pet.desktop`（Linux）/ 系统登录项（Windows、macOS） |
 
 ## 自定义随机台词与动图（lines.json）
 
@@ -93,10 +93,10 @@ npm start
 
 ## 配置与数据
 
-所有数据保存在 `~/.config/whale-pet/`（Windows 下为 `%APPDATA%/whale-pet`）：
+所有数据保存在 `~/.config/whale-pet/`（Windows 为 `%APPDATA%/whale-pet`，macOS 为 `~/Library/Application Support/whale-pet`）：
 
 ```
-~/.config/whale-pet/   (Windows: %APPDATA%/whale-pet)
+~/.config/whale-pet/   (Windows: %APPDATA%/whale-pet;  macOS: ~/Library/Application Support/whale-pet)
 ├── config.json   # 全部设置（含 API Key，权限 600；可用 WHALE_PET_HOME 重定向）
 ├── usage.json    # 小鲸鱼记账账本（lastBalance / todayUsage / history 30 天）
 └── lines.json    # 随机台词/动图池（首次自动生成默认值）
@@ -105,7 +105,7 @@ npm start
 ## 目录结构
 
 ```text
-DeepSeek-Balance-Whale-Widget-Linux/
+DeepSeek-Whale-Pet/
 ├── main.js                  # Electron 主进程：窗口/托盘/热键/自启/单实例/IPC/通知
 ├── preload.js               # contextBridge 安全桥（window.whaleAPI）
 ├── lib/

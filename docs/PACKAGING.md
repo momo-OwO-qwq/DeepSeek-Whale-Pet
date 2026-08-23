@@ -38,7 +38,7 @@ npm run dist:deb         # deb：Debian/Ubuntu 安装包
 
 1. **把项目推送到 GitHub**
    ```bash
-   git remote add origin https://github.com/<你的用户名>/DeepSeek-Balance-Whale-Widget-Linux.git
+   git remote add origin https://github.com/<你的用户名>/DeepSeek-Whale-Pet.git
    git push -u origin main
    ```
 2. **在 GitHub 仓库设置里允许 Actions**：`Settings → Actions → General → Workflow permissions` 设为 `Read and write permissions`（写 Release 需要）。

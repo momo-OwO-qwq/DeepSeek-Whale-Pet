@@ -1,4 +1,4 @@
-# 设计文档 —— DeepSeek 余额小鲸鱼桌宠（Linux 独立版）
+# 设计文档 —— DeepSeek Whale Pet 桌宠（Linux / Windows / macOS）
 
 > 版本 v1.0 · 基于原版 DSH 插件 v0.2.8 核心功能移植
 > 参考：MeteorNOX/DeepSeek-Balance-Whale-Widget（DSH Web 挂件）、deepseek-whale-pet（Electron 版）

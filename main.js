@@ -264,7 +264,7 @@ function applyAutostart(enabled) {
   try {
     if (process.platform === 'linux') {
       const dir = path.join(os.homedir(), '.config', 'autostart')
-      const file = path.join(dir, 'deepseek-whale-linux.desktop')
+      const file = path.join(dir, 'deepseek-whale-pet.desktop')
       if (enabled) {
         fs.mkdirSync(dir, { recursive: true, mode: 0o755 })
         const exec = app.isPackaged
@@ -273,12 +273,12 @@ function applyAutostart(enabled) {
         // 桌面图标统一使用 DSniang1.png：打包后指向 electron-builder 由
         // DSniang1.png 生成的安装图标名；开发运行时指向仓库内的资产文件。
         const iconVal = app.isPackaged
-          ? 'deepseek-whale-linux'
+          ? 'deepseek-whale-pet'
           : path.join(__dirname, 'assets', 'DSniang1.png')
         fs.writeFileSync(file, [
           '[Desktop Entry]',
           'Type=Application',
-          'Name=DeepSeek Whale Linux',
+          'Name=DeepSeek Whale Pet',
           'Comment=DeepSeek 余额小鲸鱼桌宠',
           'Icon=' + iconVal,
           'Exec=' + exec,
