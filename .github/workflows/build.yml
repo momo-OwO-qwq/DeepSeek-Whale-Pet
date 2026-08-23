@@ -56,13 +56,15 @@ jobs:
           RELEASE_NAME="${PRODUCT} ${VERSION}"
 
           git fetch --tags --quiet
+          # 取上一个版本标签（排除当前标签）；没有则回退到近期提交
+          # 注意：禁止用空值/自身造成 git log 报错，避免 set -e/pipefail 直接失败
           PREV=$(git tag --list 'v*' 'ver-*' | grep -v "^${GITHUB_REF_NAME}$" | sort -V | tail -1 || true)
-          if [ -n "$PREV" ]; then
-            COMMITS=$(git log --oneline --no-decorate "$PREV"..HEAD 2>/dev/null)
+          if [ -n "$PREV" ] && git rev-parse --verify "$PREV" >/dev/null 2>&1; then
+            COMMITS=$(git log --oneline --no-decorate "$PREV"..HEAD 2>/dev/null || true)
           else
             COMMITS=""
           fi
-          if [ -z "$COMMITS" ]; then COMMITS=$(git log --oneline --no-decorate -20); fi
+          if [ -z "$COMMITS" ]; then COMMITS=$(git log --oneline --no-decorate -20 || true); fi
 
           {
             echo "### 📜 Commits:"

@@ -134,6 +134,8 @@
   var peakMode = 'default'
   var peakText = true
   var bubbleOn = true
+  var bubbleIntervalMs = 120000
+  var bubbleIntervalTimer = null
   var idleFade = true
   var refreshIntervalMs = 60000
   var threshold = 10
@@ -327,6 +329,21 @@
     bubbleShown = true
     bubbleRandomActive = false
     restoreBubbleLines()
+    bubbleBox.classList.add('wp-bubble-open')
+    reportShape()
+    bubbleTimer = setTimeout(hideBubble, BUBBLE_MS)
+  }
+
+  // 自动随机台词：每 bubbleInterval 秒弹一次「随机台词」气泡（非余额内容）。
+  // 点击气泡切换/关闭行为不变；自动触发时直接展示随机台词段。
+  function showRandomBubble() {
+    if (!bubbleOn) return
+    if (bubbleTimer) { clearTimeout(bubbleTimer); bubbleTimer = null }
+    if (gifFadeTimer) { clearTimeout(gifFadeTimer); gifFadeTimer = null }
+    bubbleShown = true
+    bubbleRandomActive = true
+    bubbleRandomLines = pickRandomLines()
+    applyBubbleLines(bubbleRandomLines)
     bubbleBox.classList.add('wp-bubble-open')
     reportShape()
     bubbleTimer = setTimeout(hideBubble, BUBBLE_MS)
@@ -866,6 +883,13 @@
     peakMode = ['liangwen', 'qiangqiang'].includes(c.peakMode) ? c.peakMode : 'default'
     peakText = c.peakText !== false
     bubbleOn = c.bubbleOn !== false
+    var bi = (typeof c.bubbleInterval === 'number' && isFinite(c.bubbleInterval)) ? Math.max(0, Math.round(c.bubbleInterval)) : 120
+    bi = bi * 1000
+    if (bi !== bubbleIntervalMs) {
+      bubbleIntervalMs = bi
+      if (bubbleIntervalTimer) { clearInterval(bubbleIntervalTimer); bubbleIntervalTimer = null }
+      if (bubbleIntervalMs > 0) bubbleIntervalTimer = setInterval(function () { showRandomBubble() }, bubbleIntervalMs)
+    }
     idleFade = c.idleFade !== false
     // 闲置不透明度（可调，0.2 - 1.0）
     var idleOp = (typeof c.idleOpacity === 'number' && isFinite(c.idleOpacity)) ? Math.min(1, Math.max(0.2, c.idleOpacity)) : 0.6

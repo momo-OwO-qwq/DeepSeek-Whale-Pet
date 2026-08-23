@@ -17,7 +17,7 @@
     apiKey: $('wm-apikey'), apiKeyEye: $('wm-apikey-eye'), apiKeyNote: $('wm-apikey-note'),
     token: $('wm-token'), tokenEye: $('wm-token-eye'),
     usage: $('wm-usage'), refresh: $('wm-refresh'), threshold: $('wm-threshold'), autostart: $('wm-autostart'),
-    bubble: $('wm-bubble'), idleFade: $('wm-idlefade'),
+    bubble: $('wm-bubble'), bubbleInterval: $('wm-bubble-interval'), idleFade: $('wm-idlefade'),
     idleOpacity: $('wm-idle-opacity'), idleOpacityV: $('wm-idle-opacity-v'),
     scale: $('wm-scale'), scaleV: $('wm-scale-v'),
     peak: $('wm-peak'), peakText: $('wm-peaktext'), peakOff: $('wm-peak-off'), peakOn: $('wm-peak-on'),
@@ -211,6 +211,11 @@
     var v = Math.round(Number(els.refresh.value) || 60)
     els.refresh.value = String(v)
     api.setConfig({ refreshInterval: v })
+  })
+  els.bubbleInterval.addEventListener('change', function () {
+    var v = Math.round(Number(els.bubbleInterval.value) || 0)
+    els.bubbleInterval.value = String(v)
+    api.setConfig({ bubbleInterval: v })
   })
   els.threshold.addEventListener('change', function () {
     var v = Number(els.threshold.value)
