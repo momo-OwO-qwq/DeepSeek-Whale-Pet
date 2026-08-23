@@ -77,6 +77,17 @@ async function onReady() {
 }
 
 // ================================ 鲸鱼窗口 =================================
+// 置顶 + （macOS/Linux）全工作区可见。Windows 不支持 'screen-saver' level 与
+// setVisibleOnAllWorkspaces，作降级处理（仅置顶），避免异常。
+function pinPetWindow(win) {
+  try { win.setAlwaysOnTop(true, 'screen-saver') } catch (err) {
+    try { win.setAlwaysOnTop(true) } catch (e) { /* ignore */ }
+  }
+  if (process.platform !== 'win32') {
+    try { win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true }) } catch (err) { /* ignore */ }
+  }
+}
+
 function createPetWindow() {
   // 首帧前按配置缩放尺寸与位置创建（否则启动时 setSize 在窗口映射前可能被 WM 丢弃，
   // 导致改过的尺寸/位置不生效、回到 320 默认）
@@ -120,8 +131,8 @@ function createPetWindow() {
       spellcheck: false,
     },
   })
-  petWin.setAlwaysOnTop(true, 'screen-saver')
-  petWin.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
+  petWin.setAlwaysOnTop(true)
+  pinPetWindow(petWin)
   petWin.loadFile(path.join(__dirname, 'renderer', 'pet.html'))
   petWin.once('ready-to-show', () => {
     if (!petWin) return
@@ -414,7 +425,7 @@ function registerIpc() {
     if (process.env.WHALE_PET_TRACE === '1') console.log('[trace] resize ->', w, h)
     petWin.setSize(w, h)
     // 部分 WM 在 setSize 后会掉置顶层，重新声明
-    petWin.setAlwaysOnTop(true, 'screen-saver')
+    pinPetWindow(petWin)
   })
 
   ipcMain.on('window:set-pos', (e, msg) => {

@@ -1,4 +1,4 @@
-name: Build Linux packages
+name: Build packages
 
 on:
   push:
@@ -31,10 +31,26 @@ jobs:
             dist/*.rpm
             dist/*.tar.gz
 
+  windows:
+    name: Windows (x64 / arm64)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '22', cache: npm }
+      - run: npm ci
+      - name: Build Windows NSIS (x64 / arm64)
+        run: npx electron-builder --win --x64 --arm64 --publish never
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-packages
+          path: |
+            dist/*.exe
+
   # ------- 发布（ver- 标签：名称=产品名 版本；正文=变更清单 + 校验表） -------
   release:
     name: Publish GitHub Release
-    needs: [linux]
+    needs: [linux, windows]
     if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     permissions:

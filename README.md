@@ -1,8 +1,8 @@
-# DeepSeek 余额小鲸鱼桌宠（Linux 独立版）
+# DeepSeek 余额小鲸鱼桌宠（Linux / Windows 独立版）
 
 ![DeepSeek 余额小鲸鱼](assets/DSH2.png)
 
-参考 [MeteorNOX/DeepSeek-Balance-Whale-Widget](https://github.com/MeteorNOX/DeepSeek-Balance-Whale-Widget)（DSH Web 界面右上角余额挂件）设计实现的 **Linux 桌面独立桌宠**：一只可以拖来拖去、按一下会叫、会说随机台词的小鲸鱼，随时提醒你的 DeepSeek 余额与今日消耗。**完全脱离 DSH / 浏览器运行**，只用一行命令启动。原 DSH 插件源码已从本项目清理（如需要，请到上游参考仓库查看）。
+参考 [MeteorNOX/DeepSeek-Balance-Whale-Widget](https://github.com/MeteorNOX/DeepSeek-Balance-Whale-Widget)（DSH Web 界面右上角余额挂件）设计实现的 **跨平台桌面独立桌宠**：一只可以拖来拖去、按一下会叫、会说随机台词的小鲸鱼，随时提醒你的 DeepSeek 余额与今日消耗。**完全脱离 DSH / 浏览器运行**，只用一行命令启动。原 DSH 插件源码已从本项目清理（如需要，请到上游参考仓库查看）。
 
 ## 特性
 
@@ -25,8 +25,8 @@
 - 🌗 **暗色主题**：设置面板支持 跟随系统 / 浅色 / 深色，实时生效（含系统标题栏与原生控件；选择栏字体问题已修复）
 - 🗔 **原生设置窗口 + Tab 标签页**：系统标题栏的独立设置窗，账户/数据/外观/文案/音效/图片 六个标签页分区管理；各配置文件路径均可「点击直接打开」
 - ⚙️ **汉堡菜单**（悬停鲸鱼右上角出现 / 右键鲸鱼）：全部设置项一站式调整
-- 🧰 **系统集成**：托盘图标（显示/隐藏/刷新/设置/自启/退出）、全局热键 `Ctrl+Shift+R` 刷新、**开机自启**（XDG autostart）、**单实例**
-- 🔐 配置安全：API Key 保存于 `~/.config/whale-pet/config.json`（目录 0700 / 文件 0600）；支持环境变量 `DEEPSEEK_API_KEY` / `DEEPSEEK_PLATFORM_TOKEN` 覆盖
+- 🧰 **系统集成**：托盘图标（显示/隐藏/刷新/设置/自启/退出）、全局热键 `Ctrl+Shift+R` 刷新、**开机自启**（Linux XDG autostart / Windows 登录项）、**单实例**
+- 🔐 配置安全：API Key 保存于 `~/.config/whale-pet/config.json`（Linux 目录 0700 / 文件 0600；Windows 为 `%APPDATA%/whale-pet`）；支持环境变量 `DEEPSEEK_API_KEY` / `DEEPSEEK_PLATFORM_TOKEN` 覆盖
 
 ## 快速开始
 
@@ -93,12 +93,13 @@ npm start
 
 ## 配置与数据
 
-所有数据保存在 `~/.config/whale-pet/`：
+所有数据保存在 `~/.config/whale-pet/`（Windows 下为 `%APPDATA%/whale-pet`）：
 
 ```
-~/.config/whale-pet/
+~/.config/whale-pet/   (Windows: %APPDATA%/whale-pet)
 ├── config.json   # 全部设置（含 API Key，权限 600；可用 WHALE_PET_HOME 重定向）
-└── usage.json    # 小鲸鱼记账账本（lastBalance / todayUsage / history 30 天）
+├── usage.json    # 小鲸鱼记账账本（lastBalance / todayUsage / history 30 天）
+└── lines.json    # 随机台词/动图池（首次自动生成默认值）
 ```
 
 ## 目录结构
