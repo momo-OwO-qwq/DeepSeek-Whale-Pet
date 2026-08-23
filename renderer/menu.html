@@ -147,6 +147,12 @@
         <button id="wm-color-low-reset" class="wm-mini" title="恢复默认颜色">默认颜色</button>
       </label>
       <div class="wm-note wm-span">分别设置「余额充足」与「低于预警阈值」两种状态下气泡第一行文字与颜色；超长文字将自动截断。</div>
+      <label class="wm-row wm-span">
+        <span class="wm-label">台词间隔</span>
+        <input id="wm-bubble-interval" class="wm-num" type="number" min="0" step="1">
+        <span class="wm-unit">秒（0 关闭，默认 120）</span>
+      </label>
+      <div class="wm-note wm-span">每隔该秒数自动弹出一次随机台词气泡；填 0 则关闭自动弹出。</div>
       <div class="wm-row wm-span">
         <span class="wm-label">随机台词</span>
         <button id="wm-custom-reload" class="wm-btn">重新载入</button>

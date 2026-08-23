@@ -337,7 +337,11 @@
   // 自动随机台词：每 bubbleInterval 秒弹一次「随机台词」气泡（非余额内容）。
   // 点击气泡切换/关闭行为不变；自动触发时直接展示随机台词段。
   function showRandomBubble() {
+    // 守卫：关闭气泡、拖拽中、已有气泡展开（用户正在看）时不打断自动弹出
     if (!bubbleOn) return
+    if (bubbleShown) return
+    if (drag && drag.active) return
+    if (state.status === 'error') return // 出错时不打扰
     if (bubbleTimer) { clearTimeout(bubbleTimer); bubbleTimer = null }
     if (gifFadeTimer) { clearTimeout(gifFadeTimer); gifFadeTimer = null }
     bubbleShown = true
