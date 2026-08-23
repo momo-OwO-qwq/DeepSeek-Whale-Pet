@@ -51,20 +51,19 @@ jobs:
       - name: Build release body (Commits + Checksums)
         shell: bash
         run: |
+          # 该步骤仅生成发布正文：任何命令失败都不应让整个 job 失败
+          set +e
           VERSION="${GITHUB_REF_NAME#ver-}"; VERSION="${VERSION#v}"
-          PRODUCT=$(node -p "require('./package.json').productName")
+          PRODUCT=$(node -p "require('./package.json').productName" 2>/dev/null)
+          [ -n "$PRODUCT" ] || PRODUCT="deepseek-whale-linux"
           RELEASE_NAME="${PRODUCT} ${VERSION}"
 
-          git fetch --tags --quiet
-          # 取上一个版本标签（排除当前标签）；没有则回退到近期提交
-          # 注意：禁止用空值/自身造成 git log 报错，避免 set -e/pipefail 直接失败
-          PREV=$(git tag --list 'v*' 'ver-*' | grep -v "^${GITHUB_REF_NAME}$" | sort -V | tail -1 || true)
-          if [ -n "$PREV" ] && git rev-parse --verify "$PREV" >/dev/null 2>&1; then
-            COMMITS=$(git log --oneline --no-decorate "$PREV"..HEAD 2>/dev/null || true)
-          else
-            COMMITS=""
-          fi
-          if [ -z "$COMMITS" ]; then COMMITS=$(git log --oneline --no-decorate -20 || true); fi
+          git fetch --tags --quiet 2>/dev/null
+          PREV=$(git tag --list 'v*' 'ver-*' 2>/dev/null | grep -v "^${GITHUB_REF_NAME}$" | sort -V | tail -1)
+          COMMITS=""
+          if [ -n "$PREV" ]; then COMMITS=$(git log --oneline --no-decorate "$PREV"..HEAD 2>/dev/null); fi
+          [ -n "$COMMITS" ] || COMMITS=$(git log --oneline --no-decorate -20 2>/dev/null)
+          [ -n "$COMMITS" ] || COMMITS="(no commits)"
 
           {
             echo "### 📜 Commits:"
@@ -78,16 +77,17 @@ jobs:
             for f in artifacts/*; do
               [ -f "$f" ] || continue
               name=$(basename "$f")
-              md5=$(md5sum "$f" | cut -d' ' -f1)
-              sha=$(sha256sum "$f" | cut -d' ' -f1)
+              md5=$(md5sum "$f" 2>/dev/null | cut -d' ' -f1)
+              sha=$(sha256sum "$f" 2>/dev/null | cut -d' ' -f1)
               echo "| $name | $md5 | $sha |"
             done
             echo
             echo "> [!WARNING]"
             echo "> 桌宠为本地应用，请从可信渠道下载并核对上方校验值。"
-          } > body.md
+          } > body.md 2>/dev/null
           echo "RELEASE_NAME=$RELEASE_NAME" >> "$GITHUB_ENV"
-          sed -n '1,20p' body.md
+          cat body.md
+          exit 0
       - name: Publish to GitHub Release
         uses: softprops/action-gh-release@v2
         with:
