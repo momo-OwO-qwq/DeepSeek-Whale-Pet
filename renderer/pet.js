@@ -619,17 +619,29 @@
     var fixX = state.posX + oldW
     var fixY = state.posY + oldH
     state.scale = next
-    root.style.setProperty('--wp-base', newW + 'px')
-    state.winW = newW
-    state.winH = newH
-    var x = fixX - newW
-    var y = fixY - newH
-    var wa = await api.getWorkArea()
-    x = clamp(x, wa.x, wa.x + wa.width - newW)
-    y = clamp(y, wa.y, wa.y + wa.height - newH)
+    // 先请求主进程真实窗口尺寸，再据此设定 CSS 视觉尺寸：
+    // 碰撞箱（点击区/拖拽）以窗口真实 DIP 尺寸为准，CSS 仅做等比视觉缩放，
+    // 二者必须同源 —— 否则 Linux/Wayland 下 CSS 像素与窗口 DIP 比例偏差，
+    // 会出现「视觉缩小、碰撞箱未缩小」（右/下/上空气墙）。
+    var rb = await api.resizeWindow(newW, newH)
+    var realW = (rb && rb.width > 0) ? rb.width : newW
+    var realH = (rb && rb.height > 0) ? rb.height : newH
+    root.style.setProperty('--wp-base', realW + 'px')
+    state.winW = realW
+    state.winH = realH
+    var x = fixX - realW
+    var y = fixY - realH
+    var d2 = await api.getDisplayBounds()
+    var wa2 = await api.getWorkArea()
+    var headRoom = Math.round(realH * 0.4055) // 与拖拽相同：鲸鱼图形上/左侧空白
+    // 与拖拽引擎钳制完全一致：
+    //   X：左界允许负 headRoom（贴左），右界 = 显示器右 - 窗宽（贴右）
+    //   Y：上界允许负 headRoom（贴顶），下界 = 工作区底 - 窗高（不藏任务栏）
+    x = clamp(x, d2.x - headRoom, d2.x + d2.width - realW)
+    y = clamp(y, d2.y - headRoom, wa2.y + wa2.height - realH)
     advancePos(x, y)
-    await api.resizeWindow(newW, newH)
-    await api.setWindowPos(x, y)
+    var rp = await api.setWindowPos(x, y)
+    if (rp && isFinite(rp.x) && isFinite(rp.y)) { x = Math.round(rp.x); y = Math.round(rp.y); advancePos(x, y) }
     api.setConfig({ scale: next, posX: x, posY: y })
     reportShape()
   }
@@ -704,14 +716,21 @@
       startX: e.clientX,
       startY: e.clientY,
       moved: false,
+      // 记录最近一次屏幕绝对坐标：movement=0 但绝对坐标仍变化（光标贴物理边界、
+      // 由窗口继续推开）时以绝对坐标驱动主进程锚点，修「右/下/上边缘空气墙」。
+      lastScreenX: (typeof e.screenX === 'number' && isFinite(e.screenX) && e.screenX !== 0) ? e.screenX : (window.screenX + e.clientX),
+      lastScreenY: (typeof e.screenY === 'number' && isFinite(e.screenY) && e.screenY !== 0) ? e.screenY : (window.screenY + e.clientY),
     }
     try { e.target.setPointerCapture(e.pointerId) } catch (err) {}
     root.classList.add('wp-dragging')
     pressDown()
     setWidgetCursor('grabbing')
-    // 主进程以「真实绝对光标坐标」接管（渲染进程的 screenX/Y 由 OS 实时下发，
-    // 不会出现主进程 getCursorScreenPoint 缓存冻结导致的贴边空气墙）
-    api.dragStart(e.clientX, e.clientY, e.screenX, e.screenY)
+    // 绝对光标坐标：优先用 e.screenX/screenY；若不可靠（XWayland 下常为 0），
+    // 用 window.screenX/Y + clientX/Y 合成——两者均基于 Chromium 窗口 API，
+    // 在 X11 下始终可靠，保证主进程绝对锚点四边可达（修「右/下/上被档」）。
+    var absX = (typeof e.screenX === 'number' && isFinite(e.screenX) && e.screenX !== 0) ? e.screenX : (window.screenX + e.clientX)
+    var absY = (typeof e.screenY === 'number' && isFinite(e.screenY) && e.screenY !== 0) ? e.screenY : (window.screenY + e.clientY)
+    api.dragStart(e.clientX, e.clientY, absX, absY)
     // onDocPointerMove 是持久监听（启动时注册），不在此重复注册，
     // 否则拖动结束 removeEventListener 会把持久监听一并摘掉。
     document.addEventListener('pointerup', onDocPointerUp, true)
@@ -725,12 +744,20 @@
       var my = e.movementY
       if (typeof mx !== 'number' || !isFinite(mx)) mx = 0
       if (typeof my !== 'number' || !isFinite(my)) my = 0
-      if (mx === 0 && my === 0) return // 指针未动（含窗口移动合成的回送事件）
+      // 若 movement 为 0 但屏幕绝对坐标仍变化（光标已贴物理边界、由窗口移动
+      // 合成的回送除外：合成回送时 screenX/Y 也保持不变），继续上报一次绝对坐标，
+      // 让主进程绝对锚点把窗口推过边缘（修「拖到右/下/上边界被挡」）。
+      var absChanged = e.screenX !== drag.lastScreenX || e.screenY !== drag.lastScreenY
+      if (mx === 0 && my === 0 && !absChanged) return
+      drag.lastScreenX = e.screenX
+      drag.lastScreenY = e.screenY
       var dxc = e.clientX - drag.startX
       var dyc = e.clientY - drag.startY
       if (dxc * dxc + dyc * dyc >= CLICK_SQ || Math.abs(mx) + Math.abs(my) > 2) drag.moved = true
-      // 逐事件上报（含绝对屏幕坐标，主进程以它为主通道；增量仅作备通道）
-      api.dragDelta(mx, my, e.clientX, e.clientY, e.screenX, e.screenY)
+      // 逐事件上报（绝对坐标用同一合成规则，主进程绝对锚点为主通道；增量仅备）
+      var rax = (typeof e.screenX === 'number' && isFinite(e.screenX) && e.screenX !== 0) ? e.screenX : (window.screenX + e.clientX)
+      var ray = (typeof e.screenY === 'number' && isFinite(e.screenY) && e.screenY !== 0) ? e.screenY : (window.screenY + e.clientY)
+      api.dragDelta(mx, my, e.clientX, e.clientY, rax, ray)
       return
     }
     // 悬停在可点击区域 → 显示菜单按钮 + 抓取光标（按键盒判定，避免滑向按钮时消失）
@@ -776,11 +803,14 @@
     var w = state.winW, h = state.winH
     // 与主进程保持一致：允许窗口顶部上移 headRoom（鲸鱼图形上方的空白区），
     // 使鲸鱼本体可以真正触及屏幕上缘（问题 3 修复）。
+    // 左/上两方向允许 headRoom 负坐标（鲸鱼图形锚定右下，左/上留 40.55% 空白），
+    // 右/下仍按显示器/物理边界 —— 四边都能贴（与主进程 drag 钳制一致）。
     var headRoom = Math.round(h * 0.4055)
-    x = clamp(x, bd.x, bd.x + bd.width - w)
+    x = clamp(x, bd.x - headRoom, bd.x + bd.width - w)
     y = clamp(y, bd.y - headRoom, bd.y + bd.height - h)
     advancePos(x, y)
-    await api.setWindowPos(x, y)
+    var rp = await api.setWindowPos(x, y)
+    if (rp && isFinite(rp.x) && isFinite(rp.y)) { x = Math.round(rp.x); y = Math.round(rp.y); advancePos(x, y) }
     api.setConfig({ posX: x, posY: y })
   }
 

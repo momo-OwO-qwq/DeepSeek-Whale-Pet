@@ -432,21 +432,23 @@ function registerIpc() {
     try { petWin.setShape(rects) } catch (err) { /* 个别环境不支持 shape，忽略 */ }
   })
 
-  ipcMain.on('window:resize', (e, msg) => {
-    if (!petWin || petWin.isDestroyed()) return
+  ipcMain.handle('window:resize', (e, msg) => {
+    if (!petWin || petWin.isDestroyed()) return { x: 0, y: 0, width: 0, height: 0 }
     const w = Math.max(80, Math.round(Number(msg && msg.w) || BASE_PX))
     const h = Math.max(80, Math.round(Number(msg && msg.h) || BASE_PX))
     if (process.env.WHALE_PET_TRACE === '1') console.log('[trace] resize ->', w, h)
     petWin.setSize(w, h)
     // 部分 WM 在 setSize 后会掉置顶层，重新声明
     pinPetWindow(petWin)
+    return petWin.getBounds()
   })
 
-  ipcMain.on('window:set-pos', (e, msg) => {
-    if (!petWin || petWin.isDestroyed()) return
+  ipcMain.handle('window:set-pos', (e, msg) => {
+    if (!petWin || petWin.isDestroyed()) return { x: 0, y: 0, width: 0, height: 0 }
     const x = Math.round(Number(msg && msg.x) || 0)
     const y = Math.round(Number(msg && msg.y) || 0)
     petWin.setPosition(x, y)
+    return petWin.getBounds()
   })
 
   // ---------- 拖拽（主进程单权威引擎，见文件头注释）----------
@@ -463,7 +465,9 @@ function registerIpc() {
     const sy = Number(msg && msg.screenY)
     // 锚点 = 抓取瞬间「光标绝对坐标 − 窗口左上角」，用主进程实际窗口位置计算，
     // 保证与渲染进程 viewport 缩放无关（全部 DIP）。
-    const hasAbs = isFinite(sx) && isFinite(sy) && sx !== 0 && sy !== 0
+    // XWayland 下渲染进程 screenX/Y 可能全为 0（不可用），此刻必须回退增量通道；
+    // 仅当至少一个坐标非零（OS 真下发了绝对坐标）才使用绝对锚点。
+    const hasAbs = isFinite(sx) && isFinite(sy) && (sx !== 0 || sy !== 0)
     dragState = {
       anchorX: hasAbs ? sx - b.x : (Number(msg && msg.offsetX) || 0),
       anchorY: hasAbs ? sy - b.y : (Number(msg && msg.offsetY) || 0),
@@ -494,14 +498,16 @@ function registerIpc() {
     const cursor = screen.getCursorScreenPoint()
     if (dragState.lastCursor && (cursor.x !== dragState.lastCursor.x || cursor.y !== dragState.lastCursor.y)) {
       if (IS_SMOKE) { dragState.lastCursor = cursor; return }
-      const dx = cursor.x - dragState.lastCursor.x
-      const dy = cursor.y - dragState.lastCursor.y
+      // 绝对锚点（纯 DIP，不乘 scaleFactor）：窗口顶 = 光标绝对坐标 − 抓取偏移。
+      // 光标贴物理屏顶（y=0）时目标 ny=0−anchorY 可为负，窗口把鲸鱼图形上方的
+      // 空白（headRoom）推出屏幕，鲸鱼本体才能触到屏幕上缘 —— 纯增量做不到：
+      // 光标无法为负，窗口就永远卡在「光标能到的最上方」，表现为空气墙。
       dragState.lastCursor = cursor
       dragState.lastCursorMoveAt = Date.now() // 门控：增量通道据此让位
       const d = screen.getDisplayMatching(b)
-      const head = Math.round(b.height * 0.4055) // 鲸鱼图形上方的空白高度
-      const nx = Math.round(Math.min(Math.max(b.x + dx, d.bounds.x), Math.max(d.bounds.x, d.bounds.x + d.bounds.width - b.width)))
-      const ny = Math.round(Math.min(Math.max(b.y + dy, d.bounds.y - head), Math.max(d.bounds.y, d.bounds.y + d.bounds.height - b.height)))
+      const head = Math.round(b.height * 0.4055) // 图形上/左侧留白
+      const nx = Math.round(Math.min(Math.max(cursor.x - dragState.anchorX, d.bounds.x - head), Math.max(d.bounds.x, d.bounds.x + d.bounds.width - b.width)))
+      const ny = Math.round(Math.min(Math.max(cursor.y - dragState.anchorY, d.bounds.y - head), Math.max(d.bounds.y, d.bounds.y + d.bounds.height - b.height)))
       if (nx !== b.x || ny !== b.y) petWin.setPosition(nx, ny)
       dragState.lastPos = { x: nx, y: ny }
       dragState.lastAppliedDx = nx - b.x
@@ -522,19 +528,35 @@ function registerIpc() {
     const wa = d.workArea // 底部仍按 workArea 防止被任务栏/面板遮挡
     // 鲸鱼图形锚定在窗口右下、上部留空 40.55%（CSS: .wp-img 59.45%/bottom）。
     // 允许窗口顶部上移至多 40.55% 窗口高，让鲸鱼本体能触到屏幕上缘。
-    const headRoom = Math.round(b.height * 0.4055)
-    const clampX = (v) => Math.round(Math.min(Math.max(v, bd.x), Math.max(bd.x, bd.x + bd.width - b.width)))
+    const headRoom = Math.round(b.height * 0.4055) // 图形上/左侧留白
+    const clampX = (v) => Math.round(Math.min(Math.max(v, bd.x - headRoom), Math.max(bd.x, bd.x + bd.width - b.width)))
     const clampY = (v) => Math.round(Math.min(Math.max(v, bd.y - headRoom), Math.max(wa.y, wa.y + wa.height - b.height)))
+    // 绝对锚点主分支：渲染进程的 screenX/screenY 是 Linux 上唯一可靠的光标源
+    // （本机实测 screen.getCursorScreenPoint() 冻结）。光标贴物理屏顶（sy=0）时
+    // ny=0−anchorY 可为负，窗口把头部空白推出屏幕、鲸鱼图形触顶 —— 增量做不到。
+    const sx = Number(msg && msg.screenX)
+    const sy = Number(msg && msg.screenY)
+    if (isFinite(sx) && isFinite(sy) && (sx !== 0 || sy !== 0)) {
+      if (!dragState.hasAbs) {
+        // 这次才拿到可靠绝对坐标：以当前窗口边界重算锚点
+        dragState.anchorX = sx - b.x
+        dragState.anchorY = sy - b.y
+        dragState.hasAbs = true
+      }
+      const nx = clampX(sx - dragState.anchorX)
+      const ny = clampY(sy - dragState.anchorY)
+      if (nx !== b.x || ny !== b.y) petWin.setPosition(nx, ny)
+      dragState.lastPos = { x: nx, y: ny }
+      dragState.lastAppliedDx = nx - b.x
+      dragState.lastAppliedDy = ny - b.y
+      return
+    }
+    // 增量备分支：仅供冒烟合成事件 / 无法取得绝对坐标的老渲染进程。
     const dx = Number(msg && msg.dx) || 0
     const dy = Number(msg && msg.dy) || 0
     if (dx === 0 && dy === 0) return
-    const cx = Number(msg && msg.cx) || 0
-    const cy = Number(msg && msg.cy) || 0
-    if (process.env.WHALE_PET_TRACE === '1') console.log('[trace] drag:delta', JSON.stringify(msg))
-    if (Math.abs(cx - (dragState.lastClientX + dx - dragState.lastAppliedDx)) > 12 ||
-        Math.abs(cy - (dragState.lastClientY + dy - dragState.lastAppliedDy)) > 12) return
-    dragState.lastClientX = cx
-    dragState.lastClientY = cy
+    dragState.lastClientX = Number(msg && msg.cx) || 0
+    dragState.lastClientY = Number(msg && msg.cy) || 0
     const nx = clampX(b.x + dx)
     const ny = clampY(b.y + dy)
     if (nx !== b.x || ny !== b.y) petWin.setPosition(nx, ny)
@@ -686,7 +708,7 @@ async function runSmoke() {
   const outDir = process.env.WHALE_PET_HOME || os.tmpdir()
   const results = { petCreated: !!petWin, menuCreated: !!menuWin, tray: !!tray }
   // 兜底：无论如何 20s 内退出，避免 CI/开发机挂死
-  setTimeout(() => app.exit(0), 20000)
+  setTimeout(() => app.exit(0), 30000)
   const withTimeout = (p, ms, fallback) =>
     Promise.race([
       Promise.resolve(p).then((v) => ({ ok: true, v }), (e) => ({ ok: false, e })),
@@ -793,15 +815,35 @@ async function runSmoke() {
       exact: Math.abs(c1[0] - (before[0] - 96)) <= 2 && Math.abs(c1[1] - (before[1] - 160)) <= 2,
     }
 
-    // ② 验证拖到显示器工作区边缘（可越过面板栏）：直接驱动引擎，一次大幅上移会
-    // 被 clamp 到 workArea 顶部。真实拖拽在边缘部分会用递减的 client 坐标通过守卫
-    // （合成事件在钳制段无法模拟该轨迹，故此处用引擎直连验证钳制落点）。
-    const bd = screen.getDisplayMatching(petWin.getBounds()).workArea
-    await withTimeout(petWin.webContents.executeJavaScript(
-      '(function(){window.whaleAPI.dragStart(260,260);window.whaleAPI.dragDelta(0,-4000,260,260-4000);return window.whaleAPI.dragEnd()})()', true), 3000, null)
-    await new Promise((r) => setTimeout(r, 500))
+    // ② 验证拖到屏幕上缘（Linux 修复点）：引擎直连一次大幅上移，断言窗口顶部能到达
+    // 「显示器完整边界 − headRoom」（即鲸鱼图形——位于窗口下 59.45%——能贴上屏幕上缘）。
+    // 旧断言只检查 workArea 顶（面板下沿），未覆盖负坐标；XWayland 下若 WM 把负坐标
+    // 钳回 0，此处会失败，从而复现「拖不到上方 1/4」。
+    const disp = screen.getDisplayMatching(petWin.getBounds())
+    const bd = disp.workArea
+    const headRoom = Math.round(petWin.getBounds().height * 0.4055)
+    const topLimit = disp.bounds.y - headRoom // 允许窗口顶超出屏幕上沿 headRoom
+    // 分步 async（走渲染进程→主进程的正常 IPC 方向）：每个调用单独 executeJavaScript，
+    // 前一个 invoke 完成后才开始下一步 —— 之前同步块写法在 dragState 建立前就发送了
+    // delta，且上一版误用 webContents.send（主→渲染方向，渲染进程没有该监听），
+    // 两者都导致引擎直达测试被丢弃（after==before 的伪通过）。
+    const beforeTop = petWin.getPosition()
+    await withTimeout(petWin.webContents.executeJavaScript('window.whaleAPI.dragStart(260,260,260,260)', true), 2000, null)
+    await new Promise((r) => setTimeout(r, 150)) // 等主进程 dragState 就绪
+    await withTimeout(petWin.webContents.executeJavaScript('window.whaleAPI.dragDelta(0,-4000,260,-3740,260,-3740)', true), 2000, null)
+    await new Promise((r) => setTimeout(r, 200))
+    await withTimeout(petWin.webContents.executeJavaScript('window.whaleAPI.dragEnd()', true), 2000, null)
+    await new Promise((r) => setTimeout(r, 400))
     const c3 = petWin.getPosition()
-    results.drag.topEdge = { after: { x: c3[0], y: c3[1] }, reached: Math.abs(c3[1] - bd.y) <= 2 }
+    results.drag.topEdge = {
+      beforeTop: { x: beforeTop[0], y: beforeTop[1] },
+      after: { x: c3[0], y: c3[1] },
+      // 应能到达上限（负坐标），证明鲸鱼图形可触屏幕上缘
+      reachedTop: c3[1] <= topLimit + 2,
+      topLimit,
+      workAreaTop: bd.y,
+      note: c3[1] < bd.y - 2 ? '窗口顶已越过任务栏/面板（负坐标生效）' : '窗口顶被钳回 workArea（负坐标可能被 WM 拒绝）',
+    }
 
     // ③ 修改大小（用户曾报告改大小后难以移动——根因是贴边吸附在放大后
     // 把窗口拽回边缘，本次已取消吸附）。验证：缩放生效、鲸鱼右下角锚定、
@@ -861,10 +903,66 @@ async function runSmoke() {
     results.menuReopen = 'FAIL: ' + String((err && err.message) || err)
   }
 
+  // ⑤ Linux 拖顶专项（受控真机验证）：直接在渲染进程派发带真实屏幕绝对坐标的
+  // pointer 事件序列，验证主进程拖拽引擎能把窗口顶推到 topLimit
+  // （= 显示器上界 − headRoom，即鲸鱼图形触到屏幕上缘）。
+  try {
+    const d5 = screen.getDisplayMatching(petWin.getBounds())
+    const head5 = Math.round(petWin.getBounds().height * 0.4055)
+    const topLimit5 = d5.bounds.y - head5
+    const wb = petWin.webContents
+    const bottomPos = {
+      x: d5.bounds.x + d5.bounds.width - petWin.getBounds().width,
+      y: d5.bounds.y + d5.bounds.height - petWin.getBounds().height,
+    }
+    petWin.setPosition(bottomPos.x, bottomPos.y)
+    await new Promise((r) => setTimeout(r, 700))
+    const js5 = `(async function(){
+  var iw = window.innerWidth, ih = window.innerHeight
+  var winX = window.screenX, winY = window.screenY
+  var base = { winX: winX, winY: winY, iw: iw, ih: ih }
+  var fire = function(type, sx, sy, cx, cy) {
+    document.dispatchEvent(new PointerEvent(type, {
+      clientX: cx, clientY: cy, screenX: sx, screenY: sy,
+      button: 0, buttons: type === 'pointerup' ? 0 : 1,
+      pointerId: 11, pointerType: 'mouse', isPrimary: true, bubbles: true, cancelable: true
+    }))
+  }
+  var startSX = winX + Math.round(iw * 0.7), startSY = winY + Math.round(ih * 0.9)
+  fire('pointerdown', startSX, startSY, iw * 0.7, ih * 0.9)
+  var ys = []
+  var sy = startSY
+  while (sy >= 0) {
+    sy = Math.max(sy - 60, 0)
+    fire('pointermove', startSX, sy, iw * 0.7, sy - winY)
+    ys.push(sy)
+    await new Promise(function (r) { setTimeout(r, 40) })
+  }
+  fire('pointerup', startSX, 0, iw * 0.7, 0 - winY)
+  await new Promise(function (r) { setTimeout(r, 700) })
+  return { base: base, steps: ys.length }
+})()`
+    await withTimeout(wb.executeJavaScript(js5, true), 5000, null)
+    await new Promise((r) => setTimeout(r, 400))
+    const after5 = petWin.getPosition()
+    results.drag.linuxTop = {
+      start: bottomPos,
+      after: { x: after5[0], y: after5[1] },
+      topLimit: topLimit5,
+      reachedTop: after5[1] <= topLimit5 + 4,
+      note: after5[1] < d5.workArea.y ? '窗口顶已越过面板（负坐标生效，图形触顶）' : '窗口顶仍在面板下方（未触顶）',
+    }
+  } catch (err) {
+    results.drag.linuxTop = 'FAIL: ' + String((err && err.message) || err)
+  }
+
   const cfg = configMod.getEffective()
   results.configPath = configMod.CONFIG_FILE
   results.apiKeySource = cfg.apiKeySource || (cfg.apiKey ? 'config' : 'missing')
   results.balance = await withTimeout(balanceService.getSnapshot(cfg), 25000, { ok: false, error: 'balance timeout' })
-  console.log('[smoke] ' + JSON.stringify(results, null, 2))
+  const summary = JSON.stringify(results, null, 2)
+  // GUI 重定向下 stdout 不可靠：结果同时写盘，便于 CI / 真机验证
+  try { fs.writeFileSync(path.join(outDir, 'smoke-results.json'), summary, 'utf8') } catch (err) {}
+  console.log('[smoke] ' + summary)
   app.exit(0)
 }

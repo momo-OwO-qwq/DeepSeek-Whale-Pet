@@ -14,8 +14,11 @@ contextBridge.exposeInMainWorld('whaleAPI', {
   // 窗口
   getWorkArea: () => ipcRenderer.invoke('window:get-workarea'),
   getDisplayBounds: () => ipcRenderer.invoke('window:get-display-bounds'),
-  resizeWindow: (w, h) => ipcRenderer.send('window:resize', { w, h }),
-  setWindowPos: (x, y) => ipcRenderer.send('window:set-pos', { x, y }),
+  // 改为 invoke：主进程执行后返回真实窗口 bounds（{x,y,width,height}），
+  // 渲染进程据此同步 state.winW/winH/posX/posY 再重报 shape —— 缩放后
+  // 碰撞箱（点击区/拖拽锚点）与视觉尺寸保持一致（修复「缩小时右/下空气墙」）。
+  resizeWindow: (w, h) => ipcRenderer.invoke('window:resize', { w, h }),
+  setWindowPos: (x, y) => ipcRenderer.invoke('window:set-pos', { x, y }),
   // 透明点击穿透：把窗口裁剪为 鲸鱼/气泡/按钮 区域，其余部分点击直接落到桌面
   setShape: (rects) => ipcRenderer.send('pet:shape', { rects }),
   // 拖拽：渲染进程上报原始位移增量 + 实时绝对屏幕坐标（screenX/Y，OS 实时下发，
