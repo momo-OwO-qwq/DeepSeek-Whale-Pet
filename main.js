@@ -516,12 +516,13 @@ function registerIpc() {
     // 不使用绝对锚点公式 —— issue #1 空气墙的根因正是「绝对坐标 - 锚点」在
     // 坐标系不一致（Linux/XWayland 渲染进程 screenX/Y 与主进程 DIP 边界）时产生
     // 方向性漂移；增量公式天然免疫。
-    const d = screen.getDisplayMatching(petWin.getBounds())
+    const b = petWin.getBounds()
+    const d = screen.getDisplayMatching(b)
     const bd = d.bounds // 顶部钳制用显示器完整边界（配合 headRoom 推出屏幕）
     const wa = d.workArea // 底部仍按 workArea 防止被任务栏/面板遮挡
     // 鲸鱼图形锚定在窗口右下、上部留空 40.55%（CSS: .wp-img 59.45%/bottom）。
     // 允许窗口顶部上移至多 40.55% 窗口高，让鲸鱼本体能触到屏幕上缘。
-    const headRoom = Math.round(d.bounds.height * 0.4055)
+    const headRoom = Math.round(b.height * 0.4055)
     const clampX = (v) => Math.round(Math.min(Math.max(v, bd.x), Math.max(bd.x, bd.x + bd.width - b.width)))
     const clampY = (v) => Math.round(Math.min(Math.max(v, bd.y - headRoom), Math.max(wa.y, wa.y + wa.height - b.height)))
     const dx = Number(msg && msg.dx) || 0
