@@ -464,9 +464,15 @@ function registerIpc() {
       if (IS_SMOKE) { dragState.cursorLock = false; return } // 冒烟测试无真实光标运动
       dragState.lastCursor = cursor
       dragState.cursorLock = true
-      const bd = screen.getDisplayNearestPoint(cursor).bounds // 物理边缘（非 workArea）
-      const nx = Math.round(Math.min(Math.max(cursor.x - dragState.offsetX, bd.x), Math.max(bd.x, bd.x + bd.width - b.width)))
-      const ny = Math.round(Math.min(Math.max(cursor.y - dragState.offsetY, bd.y), Math.max(bd.y, bd.y + bd.height - b.height)))
+      const d = screen.getDisplayNearestPoint(cursor)
+      const bd = d.workArea // 用 workArea 钳制，避免窗口被任务栏遮挡
+      const sf = d.scaleFactor || 1 // DPI 缩放因子：getCursorScreenPoint 返回物理像素，
+      // getBounds 也返回物理像素，但 offset 来自渲染进程的 CSS 像素（e.clientX/Y），
+      // 必须按 DPI 比例换算到物理空间，否则窗口位置会在缩放环境下偏移。
+      const ox = dragState.offsetX * sf
+      const oy = dragState.offsetY * sf
+      const nx = Math.round(Math.min(Math.max(cursor.x - ox, bd.x), Math.max(bd.x, bd.x + bd.width - b.width)))
+      const ny = Math.round(Math.min(Math.max(cursor.y - oy, bd.y), Math.max(bd.y, bd.y + bd.height - b.height)))
       if (nx !== b.x || ny !== b.y) petWin.setPosition(nx, ny)
       dragState.lastPos = { x: nx, y: ny }
       dragState.lastAppliedDx = nx - b.x
@@ -474,27 +480,32 @@ function registerIpc() {
     }
   }
 
-  // 增量通道：渲染进程逐事件上报原始位移；主进程立即应用（含一致性守卫）。
-  // 逐事件独立处理（不合并），任一被守卫拒绝的事件不会污染其他事件。
+  // 增量通道：渲染进程逐事件上报原始位移（CSS 像素）；主进程换算为物理像素后
+  // 立即应用（含一致性守卫）。逐事件独立处理（不合并），任一被守卫拒绝的事件
+  // 不会污染其他事件。
   ipcMain.on('drag:delta', (e, msg) => {
     if (!dragState || !petWin || petWin.isDestroyed()) return
     if (dragState.cursorLock) return
     const b = petWin.getBounds()
+    // 渲染进程 movementX/Y 为 CSS 像素；主进程窗口位置为物理像素，需按 DPI 缩放
+    const d = screen.getDisplayNearestPoint({ x: b.x + b.width / 2, y: b.y + b.height / 2 })
+    const sf = d.scaleFactor || 1
+    const bd = d.workArea // 用 workArea 钳制，避免窗口被任务栏遮挡
     const dx = Number(msg && msg.dx) || 0
     const dy = Number(msg && msg.dy) || 0
     if (dx === 0 && dy === 0) return
     const cx = Number(msg && msg.cx) || 0
     const cy = Number(msg && msg.cy) || 0
-    // 一致性守卫：Δclient ≈ movement − Δwindow（拒绝窗口移动合成的回送事件）
-    const expectX = dragState.lastClientX + dx - dragState.lastAppliedDx
-    const expectY = dragState.lastClientY + dy - dragState.lastAppliedDy
+    // 一致性守卫：CSS 空间粗检（Δclient ≈ movement − Δwindow/缩放），容差含 DPI 余量
+    const expectX = dragState.lastClientX + dx - dragState.lastAppliedDx / sf
+    const expectY = dragState.lastClientY + dy - dragState.lastAppliedDy / sf
     if (process.env.WHALE_PET_TRACE === '1') console.log('[trace] drag:delta', JSON.stringify(msg), 'expect', expectX, expectY, 'applied', dragState.lastAppliedDx, dragState.lastAppliedDy)
-    if (Math.abs(cx - expectX) > 8 || Math.abs(cy - expectY) > 8) return
+    if (Math.abs(cx - expectX) > 12 || Math.abs(cy - expectY) > 12) return
     dragState.lastClientX = cx
     dragState.lastClientY = cy
-    const bd = screen.getDisplayNearestPoint({ x: b.x + b.width / 2, y: b.y + b.height / 2 }).bounds
-    const nx = Math.round(Math.min(Math.max(b.x + dx, bd.x), Math.max(bd.x, bd.x + bd.width - b.width)))
-    const ny = Math.round(Math.min(Math.max(b.y + dy, bd.y), Math.max(bd.y, bd.y + bd.height - b.height)))
+    // movementX/Y × DPI → 物理像素偏移
+    const nx = Math.round(Math.min(Math.max(b.x + dx * sf, bd.x), Math.max(bd.x, bd.x + bd.width - b.width)))
+    const ny = Math.round(Math.min(Math.max(b.y + dy * sf, bd.y), Math.max(bd.y, bd.y + bd.height - b.height)))
     if (nx !== b.x || ny !== b.y) petWin.setPosition(nx, ny)
     dragState.lastPos = { x: nx, y: ny }
     dragState.lastAppliedDx = nx - b.x
@@ -751,10 +762,10 @@ async function runSmoke() {
       exact: Math.abs(c1[0] - (before[0] - 96)) <= 2 && Math.abs(c1[1] - (before[1] - 160)) <= 2,
     }
 
-    // ② 验证拖到显示器物理边缘（可越过面板栏）：直接驱动引擎，一次大幅上移会
-    // 被 clamp 到 bounds 顶部。真实拖拽在边缘部分会用递减的 client 坐标通过守卫
+    // ② 验证拖到显示器工作区边缘（可越过面板栏）：直接驱动引擎，一次大幅上移会
+    // 被 clamp 到 workArea 顶部。真实拖拽在边缘部分会用递减的 client 坐标通过守卫
     // （合成事件在钳制段无法模拟该轨迹，故此处用引擎直连验证钳制落点）。
-    const bd = screen.getDisplayMatching(petWin.getBounds()).bounds
+    const bd = screen.getDisplayMatching(petWin.getBounds()).workArea
     await withTimeout(petWin.webContents.executeJavaScript(
       '(function(){window.whaleAPI.dragStart(260,260);window.whaleAPI.dragDelta(0,-4000,260,260-4000);return window.whaleAPI.dragEnd()})()', true), 3000, null)
     await new Promise((r) => setTimeout(r, 500))
@@ -769,7 +780,7 @@ async function runSmoke() {
     await withTimeout(petWin.webContents.executeJavaScript('window.whaleAPI.setConfig({scale: 1.5})', true), 3000, null)
     await new Promise((r) => setTimeout(r, 900))
     const sb = petWin.getBounds()
-    const sbd = screen.getDisplayMatching(screen.getDisplayNearestPoint({ x: sb.x + sb.width / 2, y: sb.y + sb.height / 2 }).bounds).bounds
+    const sbd = screen.getDisplayMatching(screen.getDisplayNearestPoint({ x: sb.x + sb.width / 2, y: sb.y + sb.height / 2 }).workArea).workArea
     results.drag.scaleDrag = {
       resized: sb.width === 480 && sb.height === 480,
       cornerAnchored: Math.abs((sb.x + sb.width) - (posBeforeScale[0] + 320)) <= 3 && Math.abs((sb.y + sb.height) - (posBeforeScale[1] + 320)) <= 3,

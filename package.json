@@ -1,7 +1,7 @@
 {
   "name": "deepseek-whale-pet",
   "productName": "DeepSeek Whale Pet",
-  "version": "1.5.0",
+  "version": "1.5.1",
   "description": "桌面小鲸鱼桌宠：DeepSeek 余额监控、今日已用双模式记账、峰谷定价、随机台词、音效与汉堡菜单（Linux / Windows / macOS 独立运行）",
   "main": "main.js",
   "author": {
