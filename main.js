@@ -512,28 +512,18 @@ function registerIpc() {
   ipcMain.on('drag:delta', (e, msg) => {
     if (!dragState || !petWin || petWin.isDestroyed()) return
     // 光标通道仍活跃（<150ms 内有光标移动）时由其接管；渲染进程增量仅在\n    // 光标通道停滞时接管（Windows 下 getCursorScreenPoint 偶发冻结），\n    // 避免两个通道同时位移导致抖动/飞移。\n    if (dragState.lastCursorMoveAt && Date.now() - dragState.lastCursorMoveAt < 150) return
-    const b = petWin.getBounds()
-    const sx = Number(msg && msg.screenX)
-    const sy = Number(msg && msg.screenY)
-    const d = screen.getDisplayMatching(b)
-    const bd = d.workArea // 用 workArea 钳制，避免窗口被任务栏遮挡
+    // 纯增量位移：窗口位移 = 指针位移（与 dragTick 同一公式，不依赖任何锚点）。
+    // 不使用绝对锚点公式 —— issue #1 空气墙的根因正是「绝对坐标 - 锚点」在
+    // 坐标系不一致（Linux/XWayland 渲染进程 screenX/Y 与主进程 DIP 边界）时产生
+    // 方向性漂移；增量公式天然免疫。
+    const d = screen.getDisplayMatching(petWin.getBounds())
+    const bd = d.bounds // 顶部钳制用显示器完整边界（配合 headRoom 推出屏幕）
+    const wa = d.workArea // 底部仍按 workArea 防止被任务栏/面板遮挡
     // 鲸鱼图形锚定在窗口右下、上部留空 40.55%（CSS: .wp-img 59.45%/bottom）。
-    // 若把窗口顶部钳在 workArea.y，鲸鱼永远无法拖到屏幕上缘。因此允许窗口
-    // 顶部继续上移至多 40.55% 窗口高（把空白部分推出屏幕），让鲸鱼本体触顶。
-    const headRoom = Math.round(b.height * 0.4055)
+    // 允许窗口顶部上移至多 40.55% 窗口高，让鲸鱼本体能触到屏幕上缘。
+    const headRoom = Math.round(d.bounds.height * 0.4055)
     const clampX = (v) => Math.round(Math.min(Math.max(v, bd.x), Math.max(bd.x, bd.x + bd.width - b.width)))
-    const clampY = (v) => Math.round(Math.min(Math.max(v, bd.y - headRoom), Math.max(bd.y, bd.y + bd.height - b.height)))
-    if (dragState.hasAbs && isFinite(sx) && isFinite(sy) && sx !== 0 && sy !== 0) {
-      // 主通道：绝对坐标 → 目标位置
-      const nx = clampX(sx - dragState.anchorX)
-      const ny = clampY(sy - dragState.anchorY)
-      if (nx !== b.x || ny !== b.y) petWin.setPosition(nx, ny)
-      dragState.lastPos = { x: nx, y: ny }
-      dragState.lastAppliedDx = nx - b.x
-      dragState.lastAppliedDy = ny - b.y
-      return
-    }
-    // 备通道：无绝对坐标时按增量位移（冒烟测试/老渲染进程）
+    const clampY = (v) => Math.round(Math.min(Math.max(v, bd.y - headRoom), Math.max(wa.y, wa.y + wa.height - b.height)))
     const dx = Number(msg && msg.dx) || 0
     const dy = Number(msg && msg.dy) || 0
     if (dx === 0 && dy === 0) return
