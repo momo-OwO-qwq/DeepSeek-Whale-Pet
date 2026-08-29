@@ -141,6 +141,14 @@ function createPetWindow() {
     if (!petWin) return
     petWin.showInactive()
   })
+  // Windows 11 偶发：透明置顶窗口在点击桌面（失焦）后被 DWM 从合成中剔除，
+  // 表现为「鲸鱼消失，再点一次才恢复」。失焦时用 showInactive 重新强制显示
+  // （不抢焦点），保持鲸鱼始终可见。
+  petWin.on('blur', () => {
+    if (petWin && !petWin.isDestroyed()) {
+      try { petWin.showInactive() } catch (err) { /* ignore */ }
+    }
+  })
   petWin.on('closed', () => {
     petWin = null
     app.quit()
@@ -417,6 +425,9 @@ function registerIpc() {
   ipcMain.on('pet:shape', (e, msg) => {
     if (!petWin || petWin.isDestroyed()) return
     const rects = sanitizeRects(msg && msg.rects)
+    // 空 shape 在 Windows 上会把整个窗口从合成中剔除（鲸鱼「消失」且不可点）。
+    // 守卫：渲染进程偶发算出空矩形（如图片换载瞬间）时保留上一次 shape。
+    if (rects.length === 0) return
     if (process.env.WHALE_PET_TRACE === '1') console.log('[trace] shape', JSON.stringify(rects))
     try { petWin.setShape(rects) } catch (err) { /* 个别环境不支持 shape，忽略 */ }
   })
@@ -476,8 +487,12 @@ function registerIpc() {
     const sy = Number(msg && msg.screenY)
     const d = screen.getDisplayMatching(b)
     const bd = d.workArea // 用 workArea 钳制，避免窗口被任务栏遮挡
+    // 鲸鱼图形锚定在窗口右下、上部留空 40.55%（CSS: .wp-img 59.45%/bottom）。
+    // 若把窗口顶部钳在 workArea.y，鲸鱼永远无法拖到屏幕上缘。因此允许窗口
+    // 顶部继续上移至多 40.55% 窗口高（把空白部分推出屏幕），让鲸鱼本体触顶。
+    const headRoom = Math.round(b.height * 0.4055)
     const clampX = (v) => Math.round(Math.min(Math.max(v, bd.x), Math.max(bd.x, bd.x + bd.width - b.width)))
-    const clampY = (v) => Math.round(Math.min(Math.max(v, bd.y), Math.max(bd.y, bd.y + bd.height - b.height)))
+    const clampY = (v) => Math.round(Math.min(Math.max(v, bd.y - headRoom), Math.max(bd.y, bd.y + bd.height - b.height)))
     if (dragState.hasAbs && isFinite(sx) && isFinite(sy) && sx !== 0 && sy !== 0) {
       // 主通道：绝对坐标 → 目标位置
       const nx = clampX(sx - dragState.anchorX)

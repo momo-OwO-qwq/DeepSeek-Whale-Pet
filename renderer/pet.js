@@ -602,6 +602,9 @@
         // 水平镜像：把矩形按窗口宽度翻转
         for (var i = 0; i < rects.length; i++) rects[i].x = W - (rects[i].x + rects[i].w)
       }
+      // 空 shape 在 Windows 上会使整个窗口从合成中消失且不可点击（问题 2 根因）。
+      // 兜底：任何时刻至少保留一个覆盖鲸鱼区的矩形，绝不上报空数组。
+      if (rects.length === 0) rects.push({ x: 0, y: 0, w: W, h: H })
       api.setShape(rects)
     } catch (err) {}
   }
@@ -771,8 +774,11 @@
     // 无吸附/无翻转：自由定位，仅钳制在显示器物理边界内（可贴到任意桌面边缘）
     var x = Math.round(end.x), y = Math.round(end.y)
     var w = state.winW, h = state.winH
+    // 与主进程保持一致：允许窗口顶部上移 headRoom（鲸鱼图形上方的空白区），
+    // 使鲸鱼本体可以真正触及屏幕上缘（问题 3 修复）。
+    var headRoom = Math.round(h * 0.4055)
     x = clamp(x, bd.x, bd.x + bd.width - w)
-    y = clamp(y, bd.y, bd.y + bd.height - h)
+    y = clamp(y, bd.y - headRoom, bd.y + bd.height - h)
     advancePos(x, y)
     await api.setWindowPos(x, y)
     api.setConfig({ posX: x, posY: y })

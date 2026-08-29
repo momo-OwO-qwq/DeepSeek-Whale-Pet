@@ -49,7 +49,7 @@
         "rpm",
         "tar.gz"
       ],
-      "icon": "assets/DSniang1.png",
+      "icon": "build/icon.png",
       "category": "Utility",
       "synopsis": "DeepSeek 余额小鲸鱼桌宠",
       "description": "DeepSeek 余额小鲸鱼桌宠：余额监控、今日已用记账、峰谷定价、随机台词与音效。"
@@ -59,6 +59,13 @@
         "nsis"
       ],
       "icon": "assets/DSniang1.png"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "perMachine": false,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
     },
     "mac": {
       "target": [
