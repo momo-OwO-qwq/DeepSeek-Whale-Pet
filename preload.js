@@ -18,10 +18,11 @@ contextBridge.exposeInMainWorld('whaleAPI', {
   setWindowPos: (x, y) => ipcRenderer.send('window:set-pos', { x, y }),
   // 透明点击穿透：把窗口裁剪为 鲸鱼/气泡/按钮 区域，其余部分点击直接落到桌面
   setShape: (rects) => ipcRenderer.send('pet:shape', { rects }),
-  // 拖拽：渲染进程上报原始位移增量（dragDelta），主进程双通道引擎移动窗口；
+  // 拖拽：渲染进程上报原始位移增量 + 实时绝对屏幕坐标（screenX/Y，OS 实时下发，
+  // 不依赖主进程 getCursorScreenPoint 缓存）。主进程以绝对坐标为主通道移动窗口；
   // dragEnd 返回最终窗口位置（供吸附/保存）
-  dragStart: (offsetX, offsetY) => ipcRenderer.invoke('drag:start', { offsetX, offsetY }),
-  dragDelta: (dx, dy, cx, cy) => ipcRenderer.send('drag:delta', { dx, dy, cx, cy }),
+  dragStart: (offsetX, offsetY, screenX, screenY) => ipcRenderer.invoke('drag:start', { offsetX, offsetY, screenX, screenY }),
+  dragDelta: (dx, dy, cx, cy, screenX, screenY) => ipcRenderer.send('drag:delta', { dx, dy, cx, cy, screenX, screenY }),
   dragEnd: () => ipcRenderer.invoke('drag:end'),
   // 主图 / 预警图上传（复制到配置目录） + 恢复默认
   pickImage: (kind) => ipcRenderer.invoke('image:pick', { kind }),

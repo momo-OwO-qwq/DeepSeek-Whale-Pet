@@ -187,7 +187,7 @@ petWin.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
 ## 8. 扩展建议
 
 1. 多主题/多皮肤（换 `assets/DSniang1.png` + 调色变量即可）。
-2. 多平台余额聚合（OpenAI / Claude / 硅基流动）。
+2. 多平台余额聚合（OpenAI / Claude / 其他厂商）。
 3. 用量热力图（`usage.json` history 已具备 30 天数据）。
 4. D-Bus 集成（锁屏隐藏、会话结束后隐藏）。
 5. 左右翻转时的按压动画坐标调整（当前沿用原版中心原点）。

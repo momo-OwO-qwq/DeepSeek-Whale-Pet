@@ -81,7 +81,7 @@ jobs:
         with:
           path: artifacts
           merge-multiple: true
-      - name: Build release body (Commits + Checksums)
+      - name: Build release body (Commits)
         shell: bash
         run: |
           # 该步骤仅生成发布正文：任何命令失败都不应让整个 job 失败
@@ -102,21 +102,6 @@ jobs:
             echo "### 📜 Commits:"
             echo
             echo "$COMMITS" | sed 's/^/- /'
-            echo
-            echo "### 🔒 Checksums"
-            echo
-            echo "| artifact | MD5 | SHA256 |"
-            echo "| --- | --- | --- |"
-            for f in artifacts/*; do
-              [ -f "$f" ] || continue
-              name=$(basename "$f")
-              md5=$(md5sum "$f" 2>/dev/null | cut -d' ' -f1)
-              sha=$(sha256sum "$f" 2>/dev/null | cut -d' ' -f1)
-              echo "| $name | $md5 | $sha |"
-            done
-            echo
-            echo "> [!WARNING]"
-            echo "> 桌宠为本地应用，请从可信渠道下载并核对上方校验值。"
           } > body.md 2>/dev/null
           echo "RELEASE_NAME=$RELEASE_NAME" >> "$GITHUB_ENV"
           cat body.md

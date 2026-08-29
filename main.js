@@ -33,11 +33,14 @@ let dragState = null
 let lastLowNotifyAt = 0
 
 // 拖拽引擎（主进程持有唯一权威）：
-//  - 主通道：轮询 screen.getCursorScreenPoint()（真实鼠标移动会更新其事件缓存，
-//    参考实现 deepseek-whale-pet 同款方案；光标权威模式下无任何反馈回路）。
-//  - 备通道：光标缓存失效（静止）时，采用渲染进程上报的原始位移增量
-//    （movementX 累加 + client 坐标，主进程按 Δclient≈Δmovement−Δwin 做
-//    一致性守卫，拒绝窗口移动合成的回送事件）。
+//  - 主通道：轮询 screen.getCursorScreenPoint()。注意 Electron 中光标坐标、
+//    getBounds() 与渲染进程 clientX/Y 均为 DIP 坐标，直接做「增量位移」
+//    （窗口位移 = 光标位移），不做任何 ×scaleFactor 换算 —— 放大锚点是
+//    导致缩放环境下「拖回屏幕边缘遇空气墙」的根因。
+//  - 备通道：光标通道停滞（>150ms 无光标移动，Windows 下 getCursorScreenPoint
+//    可能在拖拽中被冻结）时，采用渲染进程上报的原始位移增量（movementX 累加
+//    + client 坐标），主进程按 Δclient≈Δmovement−Δwin 做一致性守卫，
+//    拒绝窗口移动合成的回送事件。
 let dragTimer = null
 
 // ------------------------------- 单实例 ------------------------------------
@@ -435,15 +438,25 @@ function registerIpc() {
     petWin.setPosition(x, y)
   })
 
-  // ---------- 拖拽（主进程双通道引擎，见文件头注释）----------
+  // ---------- 拖拽（主进程单权威引擎，见文件头注释）----------
+  // 主通道：渲染进程 pointer 事件里的绝对屏幕坐标（screenX/Y 由 OS 实时下发，
+  // 不会像 getCursorScreenPoint 那样在 Windows 拖拽中被缓存冻结）。主进程只做
+  // 「目标位置 = 光标绝对坐标 − 抓取点锚点」，再钳制到窗口所在显示器 workArea。
+  // 全部坐标均为 DIP，不做任何 ×scaleFactor —— 放大锚点正是缩放环境下
+  // 「拖回屏幕边缘遇空气墙」的根因。增量（dx/dy）仅作冒烟测试与无绝对坐标时的备用。
   ipcMain.handle('drag:start', (e, msg) => {
     if (!petWin || petWin.isDestroyed()) return { ok: false }
     if (process.env.WHALE_PET_TRACE === '1') console.log('[trace] drag:start', JSON.stringify(msg), 'bounds', JSON.stringify(petWin.getBounds()))
+    const b = petWin.getBounds()
+    const sx = Number(msg && msg.screenX)
+    const sy = Number(msg && msg.screenY)
+    // 锚点 = 抓取瞬间「光标绝对坐标 − 窗口左上角」，用主进程实际窗口位置计算，
+    // 保证与渲染进程 viewport 缩放无关（全部 DIP）。
+    const hasAbs = isFinite(sx) && isFinite(sy) && sx !== 0 && sy !== 0
     dragState = {
-      offsetX: Number(msg && msg.offsetX) || 0,
-      offsetY: Number(msg && msg.offsetY) || 0,
-      lastCursor: screen.getCursorScreenPoint(),
-      cursorLock: false, // 光标通道一旦真实移动，增量通道即让位
+      anchorX: hasAbs ? sx - b.x : (Number(msg && msg.offsetX) || 0),
+      anchorY: hasAbs ? sy - b.y : (Number(msg && msg.offsetY) || 0),
+      hasAbs,
       lastClientX: Number(msg && msg.offsetX) || 0,
       lastClientY: Number(msg && msg.offsetY) || 0,
       lastAppliedDx: 0,
@@ -451,61 +464,43 @@ function registerIpc() {
       lastPos: null,
     }
     if (dragTimer) clearInterval(dragTimer)
-    dragTimer = setInterval(dragTick, 16)
+    // 冒烟测试没有真实的 pointer 运动，仅保留下定时器供 smoke 断言状态存在
+    if (IS_SMOKE) dragTimer = setInterval(() => {}, 16)
     return { ok: true }
   })
 
-  function dragTick() {
+  ipcMain.on('drag:delta', (e, msg) => {
     if (!dragState || !petWin || petWin.isDestroyed()) return
     const b = petWin.getBounds()
-    const cursor = screen.getCursorScreenPoint()
-    if (dragState.lastCursor && (cursor.x !== dragState.lastCursor.x || cursor.y !== dragState.lastCursor.y)) {
-      // 主通道：光标权威（真实鼠标移动会更新屏幕光标缓存）
-      if (IS_SMOKE) { dragState.cursorLock = false; return } // 冒烟测试无真实光标运动
-      dragState.lastCursor = cursor
-      dragState.cursorLock = true
-      const d = screen.getDisplayNearestPoint(cursor)
-      const bd = d.workArea // 用 workArea 钳制，避免窗口被任务栏遮挡
-      const sf = d.scaleFactor || 1 // DPI 缩放因子：getCursorScreenPoint 返回物理像素，
-      // getBounds 也返回物理像素，但 offset 来自渲染进程的 CSS 像素（e.clientX/Y），
-      // 必须按 DPI 比例换算到物理空间，否则窗口位置会在缩放环境下偏移。
-      const ox = dragState.offsetX * sf
-      const oy = dragState.offsetY * sf
-      const nx = Math.round(Math.min(Math.max(cursor.x - ox, bd.x), Math.max(bd.x, bd.x + bd.width - b.width)))
-      const ny = Math.round(Math.min(Math.max(cursor.y - oy, bd.y), Math.max(bd.y, bd.y + bd.height - b.height)))
+    const sx = Number(msg && msg.screenX)
+    const sy = Number(msg && msg.screenY)
+    const d = screen.getDisplayMatching(b)
+    const bd = d.workArea // 用 workArea 钳制，避免窗口被任务栏遮挡
+    const clampX = (v) => Math.round(Math.min(Math.max(v, bd.x), Math.max(bd.x, bd.x + bd.width - b.width)))
+    const clampY = (v) => Math.round(Math.min(Math.max(v, bd.y), Math.max(bd.y, bd.y + bd.height - b.height)))
+    if (dragState.hasAbs && isFinite(sx) && isFinite(sy) && sx !== 0 && sy !== 0) {
+      // 主通道：绝对坐标 → 目标位置
+      const nx = clampX(sx - dragState.anchorX)
+      const ny = clampY(sy - dragState.anchorY)
       if (nx !== b.x || ny !== b.y) petWin.setPosition(nx, ny)
       dragState.lastPos = { x: nx, y: ny }
       dragState.lastAppliedDx = nx - b.x
       dragState.lastAppliedDy = ny - b.y
+      return
     }
-  }
-
-  // 增量通道：渲染进程逐事件上报原始位移（CSS 像素）；主进程换算为物理像素后
-  // 立即应用（含一致性守卫）。逐事件独立处理（不合并），任一被守卫拒绝的事件
-  // 不会污染其他事件。
-  ipcMain.on('drag:delta', (e, msg) => {
-    if (!dragState || !petWin || petWin.isDestroyed()) return
-    if (dragState.cursorLock) return
-    const b = petWin.getBounds()
-    // 渲染进程 movementX/Y 为 CSS 像素；主进程窗口位置为物理像素，需按 DPI 缩放
-    const d = screen.getDisplayNearestPoint({ x: b.x + b.width / 2, y: b.y + b.height / 2 })
-    const sf = d.scaleFactor || 1
-    const bd = d.workArea // 用 workArea 钳制，避免窗口被任务栏遮挡
+    // 备通道：无绝对坐标时按增量位移（冒烟测试/老渲染进程）
     const dx = Number(msg && msg.dx) || 0
     const dy = Number(msg && msg.dy) || 0
     if (dx === 0 && dy === 0) return
     const cx = Number(msg && msg.cx) || 0
     const cy = Number(msg && msg.cy) || 0
-    // 一致性守卫：CSS 空间粗检（Δclient ≈ movement − Δwindow/缩放），容差含 DPI 余量
-    const expectX = dragState.lastClientX + dx - dragState.lastAppliedDx / sf
-    const expectY = dragState.lastClientY + dy - dragState.lastAppliedDy / sf
-    if (process.env.WHALE_PET_TRACE === '1') console.log('[trace] drag:delta', JSON.stringify(msg), 'expect', expectX, expectY, 'applied', dragState.lastAppliedDx, dragState.lastAppliedDy)
-    if (Math.abs(cx - expectX) > 12 || Math.abs(cy - expectY) > 12) return
+    if (process.env.WHALE_PET_TRACE === '1') console.log('[trace] drag:delta', JSON.stringify(msg))
+    if (Math.abs(cx - (dragState.lastClientX + dx - dragState.lastAppliedDx)) > 12 ||
+        Math.abs(cy - (dragState.lastClientY + dy - dragState.lastAppliedDy)) > 12) return
     dragState.lastClientX = cx
     dragState.lastClientY = cy
-    // movementX/Y × DPI → 物理像素偏移
-    const nx = Math.round(Math.min(Math.max(b.x + dx * sf, bd.x), Math.max(bd.x, bd.x + bd.width - b.width)))
-    const ny = Math.round(Math.min(Math.max(b.y + dy * sf, bd.y), Math.max(bd.y, bd.y + bd.height - b.height)))
+    const nx = clampX(b.x + dx)
+    const ny = clampY(b.y + dy)
     if (nx !== b.x || ny !== b.y) petWin.setPosition(nx, ny)
     dragState.lastPos = { x: nx, y: ny }
     dragState.lastAppliedDx = nx - b.x

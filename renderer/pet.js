@@ -706,7 +706,9 @@
     root.classList.add('wp-dragging')
     pressDown()
     setWidgetCursor('grabbing')
-    api.dragStart(e.clientX, e.clientY) // 主进程以光标权威接管（含增量备通道）
+    // 主进程以「真实绝对光标坐标」接管（渲染进程的 screenX/Y 由 OS 实时下发，
+    // 不会出现主进程 getCursorScreenPoint 缓存冻结导致的贴边空气墙）
+    api.dragStart(e.clientX, e.clientY, e.screenX, e.screenY)
     // onDocPointerMove 是持久监听（启动时注册），不在此重复注册，
     // 否则拖动结束 removeEventListener 会把持久监听一并摘掉。
     document.addEventListener('pointerup', onDocPointerUp, true)
@@ -724,8 +726,8 @@
       var dxc = e.clientX - drag.startX
       var dyc = e.clientY - drag.startY
       if (dxc * dxc + dyc * dyc >= CLICK_SQ || Math.abs(mx) + Math.abs(my) > 2) drag.moved = true
-      // 逐事件上报（主进程守卫+应用，单事件失败不影响其他事件）
-      api.dragDelta(mx, my, e.clientX, e.clientY)
+      // 逐事件上报（含绝对屏幕坐标，主进程以它为主通道；增量仅作备通道）
+      api.dragDelta(mx, my, e.clientX, e.clientY, e.screenX, e.screenY)
       return
     }
     // 悬停在可点击区域 → 显示菜单按钮 + 抓取光标（按键盒判定，避免滑向按钮时消失）
