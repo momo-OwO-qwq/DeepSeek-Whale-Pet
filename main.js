@@ -468,6 +468,8 @@ function registerIpc() {
       anchorX: hasAbs ? sx - b.x : (Number(msg && msg.offsetX) || 0),
       anchorY: hasAbs ? sy - b.y : (Number(msg && msg.offsetY) || 0),
       hasAbs,
+      lastCursor: screen.getCursorScreenPoint(), // 主通道轮询起点
+      lastCursorMoveAt: 0, // 上次光标通道生效时间（用于增量通道的让位判断）
       lastClientX: Number(msg && msg.offsetX) || 0,
       lastClientY: Number(msg && msg.offsetY) || 0,
       lastAppliedDx: 0,
@@ -475,13 +477,41 @@ function registerIpc() {
       lastPos: null,
     }
     if (dragTimer) clearInterval(dragTimer)
-    // 冒烟测试没有真实的 pointer 运动，仅保留下定时器供 smoke 断言状态存在
-    if (IS_SMOKE) dragTimer = setInterval(() => {}, 16)
+    // 主力通道：主进程 16ms 轮询 getCursorScreenPoint（X11/Wayland/XWayland 下
+    // 由 OS 实时上报，绝对可靠；渲染进程 screenX/Y 在部分 Linux 环境不可用，
+    // 故不再依赖它作为唯一通道）。冒烟测试同样启动，因光标不动不会触发位移。
+    dragTimer = setInterval(dragTick, 16)
     return { ok: true }
   })
 
+  // 主通道：光标增量为权威（与文件头注释一致）。窗口位移 = 光标位移（DIP）。
+  // 顶部不钳在 workArea.y，而是放款到「显示器完整边界 − headRoom」：
+  // 鲸鱼图形位于窗口右下（上部留 40.55% 空白），只有允许窗口把空白推出屏幕，
+  // 鲸鱼本体才能触到屏幕上缘（Linux/Windows 通用；这是「拖不到上部 1/4」的根因）。
+  function dragTick() {
+    if (!dragState || !petWin || petWin.isDestroyed()) return
+    const b = petWin.getBounds()
+    const cursor = screen.getCursorScreenPoint()
+    if (dragState.lastCursor && (cursor.x !== dragState.lastCursor.x || cursor.y !== dragState.lastCursor.y)) {
+      if (IS_SMOKE) { dragState.lastCursor = cursor; return }
+      const dx = cursor.x - dragState.lastCursor.x
+      const dy = cursor.y - dragState.lastCursor.y
+      dragState.lastCursor = cursor
+      dragState.lastCursorMoveAt = Date.now() // 门控：增量通道据此让位
+      const d = screen.getDisplayMatching(b)
+      const head = Math.round(b.height * 0.4055) // 鲸鱼图形上方的空白高度
+      const nx = Math.round(Math.min(Math.max(b.x + dx, d.bounds.x), Math.max(d.bounds.x, d.bounds.x + d.bounds.width - b.width)))
+      const ny = Math.round(Math.min(Math.max(b.y + dy, d.bounds.y - head), Math.max(d.bounds.y, d.bounds.y + d.bounds.height - b.height)))
+      if (nx !== b.x || ny !== b.y) petWin.setPosition(nx, ny)
+      dragState.lastPos = { x: nx, y: ny }
+      dragState.lastAppliedDx = nx - b.x
+      dragState.lastAppliedDy = ny - b.y
+    }
+  }
+
   ipcMain.on('drag:delta', (e, msg) => {
     if (!dragState || !petWin || petWin.isDestroyed()) return
+    // 光标通道仍活跃（<150ms 内有光标移动）时由其接管；渲染进程增量仅在\n    // 光标通道停滞时接管（Windows 下 getCursorScreenPoint 偶发冻结），\n    // 避免两个通道同时位移导致抖动/飞移。\n    if (dragState.lastCursorMoveAt && Date.now() - dragState.lastCursorMoveAt < 150) return
     const b = petWin.getBounds()
     const sx = Number(msg && msg.screenX)
     const sy = Number(msg && msg.screenY)
