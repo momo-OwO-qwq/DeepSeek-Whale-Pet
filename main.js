@@ -438,9 +438,10 @@ function registerIpc() {
     const h = Math.max(80, Math.round(Number(msg && msg.h) || BASE_PX))
     if (process.env.WHALE_PET_TRACE === '1') console.log('[trace] resize ->', w, h)
     petWin.setSize(w, h)
-    // 部分 WM 在 setSize 后会掉置顶层，重新声明
     pinPetWindow(petWin)
-    return petWin.getBounds()
+    // 直接返回请求的尺寸，不使用 setSize 后的即时 getBounds：
+    // Linux 透明置顶窗口缩小后 getBounds 可能延迟反映旧尺寸（「只能变大不能变小」）
+    return { x: petWin.getBounds().x, y: petWin.getBounds().y, width: w, height: h }
   })
 
   ipcMain.handle('window:set-pos', (e, msg) => {

@@ -610,6 +610,7 @@
   }
 
   async function setScale(v) {
+    console.log('[diag] setScale called next=' + v + ' current=' + state.scale)
     var next = Math.round(clamp(Number(v), MIN_SCALE, MAX_SCALE) * 10) / 10
     if (next === state.scale) return
     var oldW = state.winW, oldH = state.winH
@@ -625,6 +626,7 @@
     // 会出现「视觉缩小、碰撞箱未缩小」（右/下/上空气墙）。
     var rb = await api.resizeWindow(newW, newH)
     var realW = (rb && rb.width > 0) ? rb.width : newW
+    console.log('[diag] resizeWindow returned ' + (rb ? JSON.stringify(rb) : 'null') + ' -> realW=' + realW)
     var realH = (rb && rb.height > 0) ? rb.height : newH
     root.style.setProperty('--wp-base', realW + 'px')
     state.winW = realW
@@ -964,6 +966,7 @@
     }
     applySoundSet()
     if (typeof c.scale === 'number' && c.scale !== state.scale) {
+      console.log('[diag] applyConfig scale path: cfg=' + c.scale + ' state=' + state.scale)
       await setScale(c.scale)
     }
     updateHeroImage()
