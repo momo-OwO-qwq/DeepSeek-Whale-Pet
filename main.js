@@ -31,17 +31,13 @@ let tray = null
 let balanceService = null
 let dragState = null
 let lastLowNotifyAt = 0
+let pendingBlurShow = false // 补全拖拽期间被挂起的"失焦补显示"（drag:end 时兑现）
 
-// 拖拽引擎（主进程持有唯一权威）：
-//  - 主通道：轮询 screen.getCursorScreenPoint()。注意 Electron 中光标坐标、
-//    getBounds() 与渲染进程 clientX/Y 均为 DIP 坐标，直接做「增量位移」
-//    （窗口位移 = 光标位移），不做任何 ×scaleFactor 换算 —— 放大锚点是
-//    导致缩放环境下「拖回屏幕边缘遇空气墙」的根因。
-//  - 备通道：光标通道停滞（>150ms 无光标移动，Windows 下 getCursorScreenPoint
-//    可能在拖拽中被冻结）时，采用渲染进程上报的原始位移增量（movementX 累加
-//    + client 坐标），主进程按 Δclient≈Δmovement−Δwin 做一致性守卫，
-//    拒绝窗口移动合成的回送事件。
 let dragTimer = null
+
+// 主通道（光标轮询）优先的平台：Windows/macOS 上 getCursorScreenPoint 实时可靠。
+// Linux（X11/XWayland）实测拖拽中冻结，改由渲染进程绝对坐标单权威驱动（1.5.2 语义）
+const CURSOR_FIRST = process.platform !== 'linux'
 
 // ------------------------------- 单实例 ------------------------------------
 const gotLock = app.requestSingleInstanceLock()
@@ -101,9 +97,11 @@ function createPetWindow() {
     const cfg = configMod.getEffective()
     const wa = screen.getPrimaryDisplay().workArea
     initSize = Math.round(BASE_PX * (cfg.scale || 1))
+    // 记忆位置的钳制必须与拖拽钳制一致（左/上允许负 headRoom）：否则「贴到左缘/上缘 → 重启」时会被这里拉回面板内，表现为「贴边位置上没贴住」
+    const headRoom = Math.round(initSize * 0.4055)
     if (typeof cfg.posX === 'number' && typeof cfg.posY === 'number') {
-      initX = Math.max(wa.x, Math.min(cfg.posX, wa.x + wa.width - initSize))
-      initY = Math.max(wa.y, Math.min(cfg.posY, wa.y + wa.height - initSize))
+      initX = Math.max(wa.x - headRoom, Math.min(cfg.posX, wa.x + wa.width - initSize))
+      initY = Math.max(wa.y - headRoom, Math.min(cfg.posY, wa.y + wa.height - initSize))
     } else {
       initX = wa.x + wa.width - initSize
       initY = wa.y + wa.height - initSize
@@ -117,6 +115,12 @@ function createPetWindow() {
     y: initY,
     transparent: true,
     frame: false,
+    // Muzyu备注：Windows11小鲸鱼无法贴右下角边缘且碰空气墙离边缘越来越远的bug的真正症结所在！
+    // Windows：frameless 窗口默认带 WS_THICKFRAME（不可见调整边框）
+    // 且实测会在每次拖拽后把「窗口框」撑大一圈（256→280→…→453）而内容区不变
+    // getBounds() 于是与渲染进程的页面尺寸脱钩，钳制按错误尺寸计算，鲸鱼右/下边永远贴不到屏幕边。
+    // 关掉它：窗口框 = 内容区（同时去掉不可见边框带来的阴影/动画副作用）。
+    thickFrame: false,
     backgroundColor: '#00000000',
     alwaysOnTop: true,
     hasShadow: false,
@@ -145,6 +149,11 @@ function createPetWindow() {
   // 表现为「鲸鱼消失，再点一次才恢复」。失焦时用 showInactive 重新强制显示
   // （不抢焦点），保持鲸鱼始终可见。
   petWin.on('blur', () => {
+    // Muzyu备注，修复新增bug：拖拽时组件抖动
+    // 拖拽中不重演窗口：Windows 下对正在拖拽的窗口 ShowWindow 会打断鼠标捕获/
+    // 触发重新合成（表现为拖拽抖动）。但不能直接丢弃这次失焦 —— 否则可能重新
+    // 出现「失焦后鲸鱼被 DWM 剔除不再显示」的老问题，故挂起并在 drag:end 补显示
+    if (dragState) { pendingBlurShow = true; return }
     if (petWin && !petWin.isDestroyed()) {
       try { petWin.showInactive() } catch (err) { /* ignore */ }
     }
@@ -359,6 +368,22 @@ function sanitizeRects(rects) {
   return out
 }
 
+// 渲染进程上报的「可见鲸鱼在窗口内的矩形」（CSS px = DIP，已含镜像与 alpha 收缩）
+// 拖拽钳制以它为准 → 哦鲸鲸本体四条边都能贴到屏幕边
+// 缺失/异常时回退：图形锚定窗口右下 59.45%（上/左留白 40.55%）
+function fishRectOf(msg, b) {
+  const f = msg && msg.fish
+  const W = b.width
+  const H = b.height
+  if (f && [f.x, f.y, f.w, f.h].every((v) => isFinite(Number(v))) && Number(f.w) > 0 && Number(f.h) > 0) {
+    const x = Math.min(Math.max(Number(f.x), 0), W)
+    const y = Math.min(Math.max(Number(f.y), 0), H)
+    return { x, y, w: Math.min(Number(f.w), W - x), h: Math.min(Number(f.h), H - y) }
+  }
+  const head = Math.round(H * 0.4055)
+  return { x: head, y: head, w: Math.max(1, W - head), h: Math.max(1, H - head) }
+}
+
 async function getWorkAreaForPet() {
   const b = (petWin && !petWin.isDestroyed()) ? petWin.getBounds() : null
   const wa = b ? screen.getDisplayMatching(b).workArea : screen.getPrimaryDisplay().workArea
@@ -369,7 +394,6 @@ function registerIpc() {
   // ---------- 配置 ----------
   ipcMain.handle('config:get', () => {
     const cfg = configMod.getEffective()
-    if (process.env.WHALE_PET_TRACE === '1') console.log('[trace] config:get scale=' + cfg.scale + ' dir=' + configMod.CONFIG_DIR)
     // 附带配置路径，供设置窗「打开文件/目录」按钮使用
     cfg.paths = {
       config: configMod.CONFIG_FILE,
@@ -428,7 +452,6 @@ function registerIpc() {
     // 空 shape 在 Windows 上会把整个窗口从合成中剔除（鲸鱼「消失」且不可点）。
     // 守卫：渲染进程偶发算出空矩形（如图片换载瞬间）时保留上一次 shape。
     if (rects.length === 0) return
-    if (process.env.WHALE_PET_TRACE === '1') console.log('[trace] shape', JSON.stringify(rects))
     try { petWin.setShape(rects) } catch (err) { /* 个别环境不支持 shape，忽略 */ }
   })
 
@@ -436,7 +459,6 @@ function registerIpc() {
     if (!petWin || petWin.isDestroyed()) return { x: 0, y: 0, width: 0, height: 0 }
     const w = Math.max(80, Math.round(Number(msg && msg.w) || BASE_PX))
     const h = Math.max(80, Math.round(Number(msg && msg.h) || BASE_PX))
-    if (process.env.WHALE_PET_TRACE === '1') console.log('[trace] resize ->', w, h)
     petWin.setSize(w, h)
     pinPetWindow(petWin)
     // 直接返回请求的尺寸，不使用 setSize 后的即时 getBounds：
@@ -453,91 +475,137 @@ function registerIpc() {
   })
 
   // ---------- 拖拽（主进程单权威引擎，见文件头注释）----------
-  // 主通道：渲染进程 pointer 事件里的绝对屏幕坐标（screenX/Y 由 OS 实时下发，
-  // 不会像 getCursorScreenPoint 那样在 Windows 拖拽中被缓存冻结）。主进程只做
-  // 「目标位置 = 光标绝对坐标 − 抓取点锚点」，再钳制到窗口所在显示器 workArea。
-  // 全部坐标均为 DIP，不做任何 ×scaleFactor —— 放大锚点正是缩放环境下
-  // 「拖回屏幕边缘遇空气墙」的根因。增量（dx/dy）仅作冒烟测试与无绝对坐标时的备用。
+  // 哦鲸鲸备注：
+  // 一段拖拽只由一个通道驱动（owner 在 drag:start 一次性定好，整段不可逆）：
+  //   · Windows/macOS → 'cursor'：主进程光标轮询，锚点也由主进程自算
+  //     （同为 DIP，主进程内相减 = 1:1 跟手，绝不与渲染进程的 CSS 像素坐标混算）
+  //   · Linux/XWayland → 'renderer'：渲染进程 screenX/Y 绝对锚点（实测光标轮询冻结）
+  // 目标位置统一为「驱动源绝对坐标 − 抓取锚点」再钳制：纯增量在贴边时必然差
+  // 最后一段（光标无法越界），是「贴不住边」的根因之一
   ipcMain.handle('drag:start', (e, msg) => {
     if (!petWin || petWin.isDestroyed()) return { ok: false }
-    if (process.env.WHALE_PET_TRACE === '1') console.log('[trace] drag:start', JSON.stringify(msg), 'bounds', JSON.stringify(petWin.getBounds()))
     const b = petWin.getBounds()
+    // 主进程自有的光标位置：与 getBounds/setPosition 同为 DIP（Electron 文档明确getCursorScreenPoint 返回 DIP 而非物理像素）因此两值相减无需比例换算
+    const cursor0 = screen.getCursorScreenPoint() // 主进程自有 DIP 光标（与窗口位置同空间）
+    // 几何基准：渲染进程的页面坐标基于「内容区」，而 setPosition 作用于「窗口框」
+    // 两者在 Windows 上可能不等（不可见边框，见 thickFrame 注释），钳制必须按内容区
+    // 尺寸 + 内容区相对窗口框的偏移计算，否则组件（按页面内位置绘制）贴不到右/下边
+    let cb = petWin.getContentBounds()
+    if (!cb || !(cb.width > 0) || !(cb.height > 0)) cb = b // 异常/不支持 → 视为窗口框=内容区
+    const geom = { w: cb.width, h: cb.height, insetX: cb.x - b.x, insetY: cb.y - b.y }
     const sx = Number(msg && msg.screenX)
     const sy = Number(msg && msg.screenY)
-    // 锚点 = 抓取瞬间「光标绝对坐标 − 窗口左上角」，用主进程实际窗口位置计算，
-    // 保证与渲染进程 viewport 缩放无关（全部 DIP）。
-    // XWayland 下渲染进程 screenX/Y 可能全为 0（不可用），此刻必须回退增量通道；
-    // 仅当至少一个坐标非零（OS 真下发了绝对坐标）才使用绝对锚点。
+    // XWayland 下渲染进程 screenX/Y 可能全为 0（OS 不下发绝对坐标）→ 回退增量分支
+    // 注意用「至少一个非零」：单轴为 0 是真实边界坐标（光标贴屏幕左缘 x=0），
+    // 用「两个都非零」判定会把贴左/贴顶时的最后一次事件误判为不可用。
     const hasAbs = isFinite(sx) && isFinite(sy) && (sx !== 0 || sy !== 0)
     dragState = {
+      // 单一权威：drag:start 一次性定好，整段拖拽不可逆（禁止双通道交替出价）
+      owner: CURSOR_FIRST ? 'cursor' : 'renderer',
+      // 渲染进程绝对坐标空间的抓取偏移（owner='renderer' 时使用）
       anchorX: hasAbs ? sx - b.x : (Number(msg && msg.offsetX) || 0),
       anchorY: hasAbs ? sy - b.y : (Number(msg && msg.offsetY) || 0),
       hasAbs,
-      lastCursor: screen.getCursorScreenPoint(), // 主通道轮询起点
-      lastCursorMoveAt: 0, // 上次光标通道生效时间（用于增量通道的让位判断）
+      // 可见图形矩形（窗口内 CSS px，含镜像）：四边贴边的钳制依据
+      fish: fishRectOf(msg, b),
+      // 主进程光标空间的抓取偏移（owner='cursor' 时使用）：两个操作数同取自主进程，
+      // 同空间相减 → 窗口跟手 1:1，且四边钳制（同为 DIP）必然可达
+      cursorAnchorX: cursor0.x - b.x,
+      cursorAnchorY: cursor0.y - b.y,
+      // 内容区几何（页面坐标 ↔ 窗口框坐标的换算），见上方 cb/geom 注释
+      geom,
+      lastCursor: cursor0, // 主通道轮询起点
+      // 上次光标通道真正驱动窗口的时间（交棒判据）。初值取当前时间 = 「刚起步，先视为存活」
+      // 否则拖拽开始后的第一个 delta 就满足「250ms 无反馈」，
+      // 会在光标通道还没来得及跑第一拍时被误判为卡死而立刻交棒
+      lastCursorMoveAt: Date.now(),
+      lastAbsX: sx, // 渲染进程绝对坐标快照（交棒判据：它在变 = 指针确实在动）
+      lastAbsY: sy,
       lastClientX: Number(msg && msg.offsetX) || 0,
       lastClientY: Number(msg && msg.offsetY) || 0,
       lastAppliedDx: 0,
       lastAppliedDy: 0,
       lastPos: null,
+      // 诊断计数（drag:end 汇总，一眼看出是哪条通道在驱动）
     }
-    if (dragTimer) clearInterval(dragTimer)
-    // 主力通道：主进程 16ms 轮询 getCursorScreenPoint（X11/Wayland/XWayland 下
-    // 由 OS 实时上报，绝对可靠；渲染进程 screenX/Y 在部分 Linux 环境不可用，
-    // 故不再依赖它作为唯一通道）。冒烟测试同样启动，因光标不动不会触发位移。
-    dragTimer = setInterval(dragTick, 16)
+    if (dragTimer) { clearInterval(dragTimer); dragTimer = null }
+    // 只有 Windows/macOS 启动光标轮询（见 CURSOR_FIRST 注释）；Linux 由渲染进程
+    // 绝对坐标单权威驱动，不启动轮询 = 不可能出现两通道抢驱动。
+    if (CURSOR_FIRST) dragTimer = setInterval(dragTick, 16)
     return { ok: true }
   })
 
-  // 主通道：光标增量为权威（与文件头注释一致）。窗口位移 = 光标位移（DIP）。
-  // 顶部不钳在 workArea.y，而是放款到「显示器完整边界 − headRoom」：
-  // 鲸鱼图形位于窗口右下（上部留 40.55% 空白），只有允许窗口把空白推出屏幕，
-  // 鲸鱼本体才能触到屏幕上缘（Linux/Windows 通用；这是「拖不到上部 1/4」的根因）。
+  // 通道 A（owner='cursor'）：窗口位移 = 光标位移，全部在主进程 DIP 空间内完成。
+  // 钳制：左/上放款到「显示器完整边界 − headRoom」，底部按 workArea（不藏任务栏）
+  // 哦鲸鲸图形位于窗口右下（上/左留 40.55% 空白），只有允许窗口把空白推出屏幕，
+  // 哦鲸鲸本体才能触到屏幕上缘/左缘 —— 光标贴屏边（x/y=0）时目标可为负，
+  // 钳制放款后图形正好贴边；若钳在 workArea 则永远差 headRoom，即「贴不了边」
   function dragTick() {
     if (!dragState || !petWin || petWin.isDestroyed()) return
+    if (dragState.owner !== 'cursor') return // 已交棒给渲染进程 → 主通道永久让位
     const b = petWin.getBounds()
     const cursor = screen.getCursorScreenPoint()
-    if (dragState.lastCursor && (cursor.x !== dragState.lastCursor.x || cursor.y !== dragState.lastCursor.y)) {
-      if (IS_SMOKE) { dragState.lastCursor = cursor; return }
-      // 绝对锚点（纯 DIP，不乘 scaleFactor）：窗口顶 = 光标绝对坐标 − 抓取偏移。
-      // 光标贴物理屏顶（y=0）时目标 ny=0−anchorY 可为负，窗口把鲸鱼图形上方的
-      // 空白（headRoom）推出屏幕，鲸鱼本体才能触到屏幕上缘 —— 纯增量做不到：
-      // 光标无法为负，窗口就永远卡在「光标能到的最上方」，表现为空气墙。
-      dragState.lastCursor = cursor
-      dragState.lastCursorMoveAt = Date.now() // 门控：增量通道据此让位
-      const d = screen.getDisplayMatching(b)
-      const head = Math.round(b.height * 0.4055) // 图形上/左侧留白
-      const nx = Math.round(Math.min(Math.max(cursor.x - dragState.anchorX, d.bounds.x - head), Math.max(d.bounds.x, d.bounds.x + d.bounds.width - b.width)))
-      const ny = Math.round(Math.min(Math.max(cursor.y - dragState.anchorY, d.bounds.y - head), Math.max(d.bounds.y, d.bounds.y + d.bounds.height - b.height)))
-      if (nx !== b.x || ny !== b.y) petWin.setPosition(nx, ny)
-      dragState.lastPos = { x: nx, y: ny }
-      dragState.lastAppliedDx = nx - b.x
-      dragState.lastAppliedDy = ny - b.y
-    }
+    if (!dragState.lastCursor || (cursor.x === dragState.lastCursor.x && cursor.y === dragState.lastCursor.y)) return
+    dragState.lastCursor = cursor
+    if (IS_SMOKE) return // 冒烟测试无真实光标运动（合成事件走渲染进程通道）
+    dragState.lastCursorMoveAt = Date.now() // 光标通道活着：交棒判据据此否决
+    const d = screen.getDisplayMatching(b)
+    // 钳制以「可见图形矩形」为准：左/上允许把图片留白推出屏幕（哦鲸鲸本体贴边），
+    // 右/下 = 图形右/下边缘贴到屏幕右/下边（底部留出任务栏）。
+    const f = dragState.fish
+    const g = dragState.geom // 内容区尺寸 + 相对窗口框的偏移（钳制必须按内容区几何算）
+    const nx = Math.round(Math.min(Math.max(cursor.x - dragState.cursorAnchorX, d.bounds.x - (g.insetX + f.x)), Math.max(d.bounds.x, d.bounds.x + d.bounds.width - (g.insetX + f.x + f.w))))
+    const ny = Math.round(Math.min(Math.max(cursor.y - dragState.cursorAnchorY, d.bounds.y - (g.insetY + f.y)), Math.max(d.workArea.y, d.workArea.y + d.workArea.height - (g.insetY + f.y + f.h))))
+    if (nx !== b.x || ny !== b.y) petWin.setPosition(nx, ny)
+    dragState.lastPos = { x: nx, y: ny }
+    dragState.lastAppliedDx = nx - b.x
+    dragState.lastAppliedDy = ny - b.y
   }
 
   ipcMain.on('drag:delta', (e, msg) => {
     if (!dragState || !petWin || petWin.isDestroyed()) return
-    // 光标通道仍活跃（<150ms 内有光标移动）时由其接管；渲染进程增量仅在\n    // 光标通道停滞时接管（Windows 下 getCursorScreenPoint 偶发冻结），\n    // 避免两个通道同时位移导致抖动/飞移。\n    if (dragState.lastCursorMoveAt && Date.now() - dragState.lastCursorMoveAt < 150) return
-    // 纯增量位移：窗口位移 = 指针位移（与 dragTick 同一公式，不依赖任何锚点）。
-    // 不使用绝对锚点公式 —— issue #1 空气墙的根因正是「绝对坐标 - 锚点」在
-    // 坐标系不一致（Linux/XWayland 渲染进程 screenX/Y 与主进程 DIP 边界）时产生
-    // 方向性漂移；增量公式天然免疫。
+    // 让位判据不再按时间（旧实现：150ms 内光标动过就整段忽略渲染进程事件），
+    // 而是看 owner —— 见下方通道 A 分支的「单向交棒」。
     const b = petWin.getBounds()
     const d = screen.getDisplayMatching(b)
-    const bd = d.bounds // 顶部钳制用显示器完整边界（配合 headRoom 推出屏幕）
+    const bd = d.bounds // 左/上钳制用显示器完整边界（配合 headRoom 推出屏幕）
     const wa = d.workArea // 底部仍按 workArea 防止被任务栏/面板遮挡
-    // 鲸鱼图形锚定在窗口右下、上部留空 40.55%（CSS: .wp-img 59.45%/bottom）。
-    // 允许窗口顶部上移至多 40.55% 窗口高，让鲸鱼本体能触到屏幕上缘。
-    const headRoom = Math.round(b.height * 0.4055) // 图形上/左侧留白
-    const clampX = (v) => Math.round(Math.min(Math.max(v, bd.x - headRoom), Math.max(bd.x, bd.x + bd.width - b.width)))
-    const clampY = (v) => Math.round(Math.min(Math.max(v, bd.y - headRoom), Math.max(wa.y, wa.y + wa.height - b.height)))
-    // 绝对锚点主分支：渲染进程的 screenX/screenY 是 Linux 上唯一可靠的光标源
-    // （本机实测 screen.getCursorScreenPoint() 冻结）。光标贴物理屏顶（sy=0）时
-    // ny=0−anchorY 可为负，窗口把头部空白推出屏幕、鲸鱼图形触顶 —— 增量做不到。
+    // 哦鲸鲸图形锚定在窗口右下、上/左留空 40.55%（CSS: .wp-img 59.45%/bottom）。
+    // 允许窗口上/左移出屏幕至多 40.55% 窗口高，让哦鲸鲸本体能触到屏幕上缘/左缘。
+    // 钳制以「可见图形矩形」为准（渲染进程随 drag:start 上报，含镜像与透明留白），
+    // 使哦鲸鲸本体四条边都能贴到屏幕边；缺失时回退到 40.55% 留白估算。
+    const f = dragState.fish
+    const g = dragState.geom // 内容区几何（同上：哦鲸鲸按页面坐标绘制，钳制按页面几何算）
+    const clampX = (v) => Math.round(Math.min(Math.max(v, bd.x - (g.insetX + f.x)), Math.max(bd.x, bd.x + bd.width - (g.insetX + f.x + f.w))))
+    const clampY = (v) => Math.round(Math.min(Math.max(v, bd.y - (g.insetY + f.y)), Math.max(wa.y, wa.y + wa.height - (g.insetY + f.y + f.h))))
     const sx = Number(msg && msg.screenX)
     const sy = Number(msg && msg.screenY)
-    if (isFinite(sx) && isFinite(sy) && (sx !== 0 || sy !== 0)) {
+    const absUsable = isFinite(sx) && isFinite(sy) && (sx !== 0 || sy !== 0)
+
+    // 通道 A 已认领（Windows/macOS）：渲染进程事件不参与驱动 —— 两个坐标系
+    // （渲染进程 CSS 像素 / 主进程 DIP）轮流出价正是拖拽抖动的根因。
+    if (dragState.owner === 'cursor') {
+      // 交棒判据（单向，只发生一次）：主通道 >250ms 无任何光标反馈，而渲染进程
+      // 绝对坐标仍在变化 —— 后者证明确有指针移动（不是用户原地按住），即
+      // getCursorScreenPoint 卡死。交棒时以当前窗口边界重算锚点（不跳位）。
+      const absMoving = sx !== dragState.lastAbsX || sy !== dragState.lastAbsY
+      dragState.lastAbsX = sx
+      dragState.lastAbsY = sy
+      const cursorStalled = !dragState.lastCursorMoveAt || Date.now() - dragState.lastCursorMoveAt > 250
+      if (!(absUsable && absMoving && cursorStalled)) {
+        return
+      }
+      dragState.anchorX = sx - b.x
+      dragState.anchorY = sy - b.y
+      dragState.hasAbs = true
+      dragState.owner = 'renderer'
+      if (dragTimer) { clearInterval(dragTimer); dragTimer = null }
+    }
+
+    // 通道 B：渲染进程 screenX/screenY 绝对锚点（Linux/XWayland 唯一可靠源）。
+    // 光标贴物理屏顶（sy=0）时 ny=0−anchorY 可为负，窗口把头部空白推出屏幕、
+    // 哦鲸鲸图形触顶 —— 纯增量做不到（光标无法为负）。
+    if (absUsable) {
       if (!dragState.hasAbs) {
         // 这次才拿到可靠绝对坐标：以当前窗口边界重算锚点
         dragState.anchorX = sx - b.x
@@ -547,17 +615,28 @@ function registerIpc() {
       const nx = clampX(sx - dragState.anchorX)
       const ny = clampY(sy - dragState.anchorY)
       if (nx !== b.x || ny !== b.y) petWin.setPosition(nx, ny)
+      // 同步 client 基准：绝对通道也可能中途失去绝对坐标而切到增量分支，
+      // 那时守卫的基准必须是最近一次事件的值，否则会整段误杀。
+      dragState.lastClientX = Number(msg && msg.cx) || 0
+      dragState.lastClientY = Number(msg && msg.cy) || 0
       dragState.lastPos = { x: nx, y: ny }
       dragState.lastAppliedDx = nx - b.x
       dragState.lastAppliedDy = ny - b.y
       return
     }
-    // 增量备分支：仅供冒烟合成事件 / 无法取得绝对坐标的老渲染进程。
+    // 增量备分支：仅供无法取得绝对坐标的渲染进程（老版本/极端环境）。
+    // 一致性守卫（1.5.2 曾删除）：窗口移动后 OS 会把新的 client 坐标回送渲染进程，
+    // 其 movement 是窗口位移合成的假位移，直接采用会让窗口追着自己跑（抽搐/飞移）。
+    // 判据 Δclient ≈ movement − Δwindow，超容差即整条丢弃（逐条独立，不污染其他）。
     const dx = Number(msg && msg.dx) || 0
     const dy = Number(msg && msg.dy) || 0
     if (dx === 0 && dy === 0) return
-    dragState.lastClientX = Number(msg && msg.cx) || 0
-    dragState.lastClientY = Number(msg && msg.cy) || 0
+    const cx = Number(msg && msg.cx) || 0
+    const cy = Number(msg && msg.cy) || 0
+    if (Math.abs(cx - (dragState.lastClientX + dx - dragState.lastAppliedDx)) > 12 ||
+        Math.abs(cy - (dragState.lastClientY + dy - dragState.lastAppliedDy)) > 12) return
+    dragState.lastClientX = cx
+    dragState.lastClientY = cy
     const nx = clampX(b.x + dx)
     const ny = clampY(b.y + dy)
     if (nx !== b.x || ny !== b.y) petWin.setPosition(nx, ny)
@@ -575,6 +654,13 @@ function registerIpc() {
       pos = { x: p[0], y: p[1] }
     }
     dragState = null
+    // 兑现拖拽期间挂起的失焦补显示（见 petWin.on('blur')）
+    if (pendingBlurShow) {
+      pendingBlurShow = false
+      if (petWin && !petWin.isDestroyed()) {
+        try { petWin.showInactive() } catch (err) { /* ignore */ }
+      }
+    }
     return pos || { x: 0, y: 0 }
   })
 

@@ -24,7 +24,8 @@ contextBridge.exposeInMainWorld('whaleAPI', {
   // 拖拽：渲染进程上报原始位移增量 + 实时绝对屏幕坐标（screenX/Y，OS 实时下发，
   // 不依赖主进程 getCursorScreenPoint 缓存）。主进程以绝对坐标为主通道移动窗口；
   // dragEnd 返回最终窗口位置（供吸附/保存）
-  dragStart: (offsetX, offsetY, screenX, screenY) => ipcRenderer.invoke('drag:start', { offsetX, offsetY, screenX, screenY }),
+  // Muzyu新增：fish：可见鲸鱼在窗口内的矩形（CSS px，含镜像），主进程据此钳制四边贴边
+  dragStart: (offsetX, offsetY, screenX, screenY, fish) => ipcRenderer.invoke('drag:start', { offsetX, offsetY, screenX, screenY, fish }),
   dragDelta: (dx, dy, cx, cy, screenX, screenY) => ipcRenderer.send('drag:delta', { dx, dy, cx, cy, screenX, screenY }),
   dragEnd: () => ipcRenderer.invoke('drag:end'),
   // 主图 / 预警图上传（复制到配置目录） + 恢复默认

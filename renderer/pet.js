@@ -546,16 +546,19 @@
   // ------------------------------------------------------------- 位置与吸附
   async function initPosition() {
     var wa = await api.getWorkArea()
+    var bd = await api.getDisplayBounds()
     var cfg = await api.getConfig()
     var x, y
     if (typeof cfg.posX === 'number' && typeof cfg.posY === 'number') {
-      x = clamp(cfg.posX, wa.x, wa.x + wa.width - state.winW)
-      y = clamp(cfg.posY, wa.y, wa.y + wa.height - state.winH)
+      // 用与拖拽一致的钳制：贴左/贴顶的记忆位置（负坐标）重启后仍保持贴边
+      var p = settlePos(cfg.posX, cfg.posY, bd, wa)
+      x = p.x
+      y = p.y
     } else {
       x = wa.x + wa.width - state.winW // 默认右下角
       y = wa.y + wa.height - state.winH
+      advancePos(x, y)
     }
-    advancePos(x, y)
     await api.setWindowPos(x, y)
   }
 
@@ -563,6 +566,69 @@
     state.posX = x
     state.posY = y
     updateAnchor()
+  }
+
+  // 可见鲸鱼在窗口内的矩形（CSS px = DIP，含镜像）：贴边钳制的唯一依据
+  // - 用 offset*（布局盒）而非 getBoundingClientRect，避免呼吸动画 transform 抖动
+  // - 镜像（.wp-left）时图形贴窗口左缘 → 矩形整体翻转，左右贴边方向自动适配
+  // - 有 alpha 包围盒时按可见部分收缩（图片自带的透明留白不计入），否则退回图片框
+  function fishRect() {
+    var x = img.offsetLeft, y = img.offsetTop, w = img.offsetWidth, h = img.offsetHeight
+    if (!(w > 0) || !(h > 0)) return null
+    if (hitBBox) {
+      var vx = x + w * hitBBox.x0
+      var vy = y + h * hitBBox.y0
+      w = w * (hitBBox.x1 - hitBBox.x0)
+      h = h * (hitBBox.y1 - hitBBox.y0)
+      x = vx
+      y = vy
+    }
+    if (flipped) x = state.winW - (x + w)
+    return { x: Math.round(x), y: Math.round(y), w: Math.round(w), h: Math.round(h) }
+  }
+
+  // 位置钳制：可见图形的四条边都能贴到屏幕边（左/上允许负坐标，把图片留白推出屏幕）。
+  // 与主进程拖拽钳制同一套规则（左右按显示器边界、底部按工作区不藏任务栏）。
+  function clampPos(x, y, bd, wa) {
+    var fr = fishRect()
+    if (!fr) {
+      var headRoom = Math.round(state.winH * 0.4055)
+      return {
+        x: clamp(x, bd.x - headRoom, Math.max(bd.x, bd.x + bd.width - state.winW)),
+        y: clamp(y, bd.y - headRoom, Math.max(wa.y, wa.y + wa.height - state.winH)),
+      }
+    }
+    return {
+      x: clamp(x, bd.x - fr.x, Math.max(bd.x, bd.x + bd.width - (fr.x + fr.w))),
+      y: clamp(y, bd.y - fr.y, Math.max(wa.y, wa.y + wa.height - (fr.y + fr.h))),
+    }
+  }
+
+  // 定位收敛（两遍）：镜像方向会随窗口跨过屏幕中线而切换，而镜像后可见图形在窗口
+  // 内的左右位置正好相反 —— 先按当前方向钳制，切换方向后再按新矩形复钳一次，
+  // 否则「拖到右缘松手 → 鲸鱼翻到另一侧 → 一截被屏幕切掉」。两遍在真实窗口尺寸下
+  // 必然收敛（钳制后的位置不会跨回中线），不做循环以免来回跳。
+  function settlePos(x, y, bd, wa) {
+    var a = clampPos(x, y, bd, wa)
+    advancePos(a.x, a.y)
+    var b = clampPos(a.x, a.y, bd, wa)
+    if (b.x !== a.x || b.y !== a.y) advancePos(b.x, b.y)
+    return b
+  }
+
+  // 换图/探针就绪后按最新的可见范围收紧位置（拖拽中不动，由主进程引擎接管）
+  async function reclampPos() {
+    if (drag && drag.active) return
+    try {
+      var bd = await api.getDisplayBounds()
+      var wa = await api.getWorkArea()
+      var wasX = state.posX
+      var wasY = state.posY
+      var p = settlePos(wasX, wasY, bd, wa)
+      if (p.x === wasX && p.y === wasY) return // 位置无需收紧（settlePos 已同步 state）
+      await api.setWindowPos(p.x, p.y)
+      reportShape()
+    } catch (err) {}
   }
 
   // 方向感知锚点：窗口中心在屏幕左半 → 鲸鱼贴窗口左缘（水平镜像）→ 可触及左边缘
@@ -635,13 +701,10 @@
     var y = fixY - realH
     var d2 = await api.getDisplayBounds()
     var wa2 = await api.getWorkArea()
-    var headRoom = Math.round(realH * 0.4055) // 与拖拽相同：鲸鱼图形上/左侧空白
-    // 与拖拽引擎钳制完全一致：
-    //   X：左界允许负 headRoom（贴左），右界 = 显示器右 - 窗宽（贴右）
-    //   Y：上界允许负 headRoom（贴顶），下界 = 工作区底 - 窗高（不藏任务栏）
-    x = clamp(x, d2.x - headRoom, d2.x + d2.width - realW)
-    y = clamp(y, d2.y - headRoom, wa2.y + wa2.height - realH)
-    advancePos(x, y)
+    // 与拖拽引擎同一套钳制（按可见图形矩形，而非固定的 40.55% 留白估算）
+    var fit = settlePos(x, y, d2, wa2)
+    x = fit.x
+    y = fit.y
     var rp = await api.setWindowPos(x, y)
     if (rp && isFinite(rp.x) && isFinite(rp.y)) { x = Math.round(rp.x); y = Math.round(rp.y); advancePos(x, y) }
     api.setConfig({ scale: next, posX: x, posY: y })
@@ -651,6 +714,32 @@
   // ------------------------------------------------------------- 命中测试
   var hitCanvas = null
   var hitReady = false
+  // 图形 alpha 包围盒（0-1 归一化，见 alphaBBox()）。初值 = 内置素材 DSniang1.png
+  // 的实测留白（左 45/610、上 10/610），供探针就绪前的定位使用；探针加载后按
+  // 实际图片（含用户上传图）重新计算覆盖。
+  var hitBBox = { x0: 45 / 610, y0: 10 / 610, x1: 1, y1: 1 }
+
+  // 可见图形的 alpha 包围盒：图片自带透明留白（如 DSniang1 左 7.4%/上 1.6%），
+  // 贴边钳制必须按「肉眼可见的鲸鱼」而非图片框，否则贴到边上时视觉上差一截
+  function alphaBBox(ctx, n) {
+    try {
+      var d = ctx.getImageData(0, 0, n, n).data
+      var x0 = n, y0 = n, x1 = -1, y1 = -1
+      for (var y = 0; y < n; y++) {
+        for (var x = 0; x < n; x++) {
+          if (d[(y * n + x) * 4 + 3] > 10) {
+            if (x < x0) x0 = x
+            if (x > x1) x1 = x
+            if (y < y0) y0 = y
+            if (y > y1) y1 = y
+          }
+        }
+      }
+      if (x1 < 0) return null
+      return { x0: x0 / n, y0: y0 / n, x1: (x1 + 1) / n, y1: (y1 + 1) / n }
+    } catch (err) { return null }
+  }
+
   function setupHitTest(src) {
     try {
       var probe = new Image()
@@ -660,8 +749,11 @@
           hitCanvas = hitCanvas || document.createElement('canvas')
           hitCanvas.width = 610
           hitCanvas.height = 610
-          hitCanvas.getContext('2d').drawImage(probe, 0, 0, 610, 610)
+          var ctx = hitCanvas.getContext('2d')
+          ctx.drawImage(probe, 0, 0, 610, 610)
           hitReady = true
+          hitBBox = alphaBBox(ctx, 610)
+          reclampPos() // 换图后可见范围可能变化 → 按新矩形重新收紧位置
         } catch (err) {}
       }
       probe.onerror = function () { /* hitReady 保持 false → 全命中，可点击优先 */ }
@@ -702,37 +794,48 @@
   }
 
   // ------------------------------------------------------------- 指针交互
-  // 拖拽：渲染进程只负责收集「原始位移增量」（e.movementX/Y）并上报主进程；
-  // 窗口移动由主进程双通道引擎完成（光标权威 / 增量备通道，见 main.js 注释）。
-  // 渲染进程不做任何窗口相对坐标的位移运算（client/screen 与窗口位置耦合，
-  // 曾导致抽搐与飞移）。setPointerCapture 保证窗口外松手不掉拖。
+  // 拖拽：窗口移动全部由主进程拖拽引擎完成（单一权威，见 main.js 拖拽引擎注释）
+  // 渲染进程只上报两类原始数据：位移增量（e.movementX/Y）与光标绝对坐标，
+  // 自身绝不做任何位移运算（client/screen 与窗口位置耦合，曾导致抽搐与飞移）
+  // setPointerCapture 保证窗口外松手不掉拖。
+  //
+  // 光标绝对坐标（渲染进程 CSS 像素空间）：e.screenX/screenY 是 OS 下发的真实值，
+  // 单轴为 0 是真实边界坐标（光标贴屏幕左缘/上缘）—— 必须原样使用，逐轴判断
+  // 「非零才可用」会在贴左/贴顶的最后几像素处退化成合成值。
+  // 仅当两轴都为 0（XWayland 下 OS 不下发绝对坐标）才用「窗口位置 + client 偏移」
+  // 合成：合成值以窗口自身位置为输入，主进程按绝对锚点移动窗口时构成反馈回路
+  // （贴边抖动/回弹），故只在拿不到原生坐标时兜底
+  function absPoint(e) {
+    var x = e.screenX
+    var y = e.screenY
+    var native = typeof x === 'number' && isFinite(x) && typeof y === 'number' && isFinite(y) && (x !== 0 || y !== 0)
+    if (native) return { x: x, y: y }
+    return { x: window.screenX + e.clientX, y: window.screenY + e.clientY }
+  }
   function onDocPointerDown(e) {
     if (e.target && e.target.closest && (e.target.closest('.wp-menu-btn') || e.target.closest('.wp-bubble'))) return
     if (e.button !== 0 && e.pointerType === 'mouse') return
     if (!isWhaleHit(e)) return
     try { e.preventDefault() } catch (err) {}
     api.closeMenu() // 点击鲸鱼时主动收起设置窗口
+    var abs0 = absPoint(e)
     drag = {
       active: true,
       pointerId: e.pointerId,
       startX: e.clientX,
       startY: e.clientY,
       moved: false,
-      // 记录最近一次屏幕绝对坐标：movement=0 但绝对坐标仍变化（光标贴物理边界、
-      // 由窗口继续推开）时以绝对坐标驱动主进程锚点，修「右/下/上边缘空气墙」。
-      lastScreenX: (typeof e.screenX === 'number' && isFinite(e.screenX) && e.screenX !== 0) ? e.screenX : (window.screenX + e.clientX),
-      lastScreenY: (typeof e.screenY === 'number' && isFinite(e.screenY) && e.screenY !== 0) ? e.screenY : (window.screenY + e.clientY),
+      // 最近一次绝对坐标：movement=0 但绝对坐标仍变化（光标已贴物理边界、需要
+      // 继续把窗口推出去）时照样上报一次，让主进程绝对锚点四边可达
+      lastScreenX: abs0.x,
+      lastScreenY: abs0.y,
     }
     try { e.target.setPointerCapture(e.pointerId) } catch (err) {}
     root.classList.add('wp-dragging')
     pressDown()
     setWidgetCursor('grabbing')
-    // 绝对光标坐标：优先用 e.screenX/screenY；若不可靠（XWayland 下常为 0），
-    // 用 window.screenX/Y + clientX/Y 合成——两者均基于 Chromium 窗口 API，
-    // 在 X11 下始终可靠，保证主进程绝对锚点四边可达（修「右/下/上被档」）。
-    var absX = (typeof e.screenX === 'number' && isFinite(e.screenX) && e.screenX !== 0) ? e.screenX : (window.screenX + e.clientX)
-    var absY = (typeof e.screenY === 'number' && isFinite(e.screenY) && e.screenY !== 0) ? e.screenY : (window.screenY + e.clientY)
-    api.dragStart(e.clientX, e.clientY, absX, absY)
+    // 附上「可见图形矩形」：主进程据此钳制，四边都能让鲸鱼本体贴到屏幕边
+    api.dragStart(e.clientX, e.clientY, abs0.x, abs0.y, fishRect())
     // onDocPointerMove 是持久监听（启动时注册），不在此重复注册，
     // 否则拖动结束 removeEventListener 会把持久监听一并摘掉。
     document.addEventListener('pointerup', onDocPointerUp, true)
@@ -746,20 +849,18 @@
       var my = e.movementY
       if (typeof mx !== 'number' || !isFinite(mx)) mx = 0
       if (typeof my !== 'number' || !isFinite(my)) my = 0
-      // 若 movement 为 0 但屏幕绝对坐标仍变化（光标已贴物理边界、由窗口移动
-      // 合成的回送除外：合成回送时 screenX/Y 也保持不变），继续上报一次绝对坐标，
-      // 让主进程绝对锚点把窗口推过边缘（修「拖到右/下/上边界被挡」）。
-      var absChanged = e.screenX !== drag.lastScreenX || e.screenY !== drag.lastScreenY
+      // 若 movement 为 0 但绝对坐标仍变化（光标已贴物理边界、需要继续把窗口推出去；
+      // 窗口移动合成的回送事件不会改变真实光标位置），照样上报一次
+      var absP = absPoint(e)
+      var absChanged = absP.x !== drag.lastScreenX || absP.y !== drag.lastScreenY
       if (mx === 0 && my === 0 && !absChanged) return
-      drag.lastScreenX = e.screenX
-      drag.lastScreenY = e.screenY
+      drag.lastScreenX = absP.x
+      drag.lastScreenY = absP.y
       var dxc = e.clientX - drag.startX
       var dyc = e.clientY - drag.startY
       if (dxc * dxc + dyc * dyc >= CLICK_SQ || Math.abs(mx) + Math.abs(my) > 2) drag.moved = true
-      // 逐事件上报（绝对坐标用同一合成规则，主进程绝对锚点为主通道；增量仅备）
-      var rax = (typeof e.screenX === 'number' && isFinite(e.screenX) && e.screenX !== 0) ? e.screenX : (window.screenX + e.clientX)
-      var ray = (typeof e.screenY === 'number' && isFinite(e.screenY) && e.screenY !== 0) ? e.screenY : (window.screenY + e.clientY)
-      api.dragDelta(mx, my, e.clientX, e.clientY, rax, ray)
+      // 逐事件上报：绝对坐标供主进程绝对锚点通道，增量供无绝对坐标时的备通道
+      api.dragDelta(mx, my, e.clientX, e.clientY, absP.x, absP.y)
       return
     }
     // 悬停在可点击区域 → 显示菜单按钮 + 抓取光标（按键盒判定，避免滑向按钮时消失）
@@ -800,17 +901,11 @@
   async function finishDrag() {
     var end = await api.dragEnd() // {x, y} 主进程记录的最终窗口位置
     var bd = await api.getDisplayBounds()
-    // 无吸附/无翻转：自由定位，仅钳制在显示器物理边界内（可贴到任意桌面边缘）
-    var x = Math.round(end.x), y = Math.round(end.y)
-    var w = state.winW, h = state.winH
-    // 与主进程保持一致：允许窗口顶部上移 headRoom（鲸鱼图形上方的空白区），
-    // 使鲸鱼本体可以真正触及屏幕上缘（问题 3 修复）。
-    // 左/上两方向允许 headRoom 负坐标（鲸鱼图形锚定右下，左/上留 40.55% 空白），
-    // 右/下仍按显示器/物理边界 —— 四边都能贴（与主进程 drag 钳制一致）。
-    var headRoom = Math.round(h * 0.4055)
-    x = clamp(x, bd.x - headRoom, bd.x + bd.width - w)
-    y = clamp(y, bd.y - headRoom, bd.y + bd.height - h)
-    advancePos(x, y)
+    var wa = await api.getWorkArea()
+    // 无吸附：自由定位，只按「可见图形四边可贴屏幕边」钳制（与主进程引擎同一套规则）
+    var fit = settlePos(Math.round(end.x), Math.round(end.y), bd, wa)
+    var x = fit.x
+    var y = fit.y
     var rp = await api.setWindowPos(x, y)
     if (rp && isFinite(rp.x) && isFinite(rp.y)) { x = Math.round(rp.x); y = Math.round(rp.y); advancePos(x, y) }
     api.setConfig({ posX: x, posY: y })
