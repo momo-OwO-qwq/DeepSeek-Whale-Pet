@@ -19,7 +19,10 @@
     "start:dev": "electron . --devtools",
     "start:no-sandbox": "electron . --no-sandbox",
     "smoke": "electron . --smoke-test",
-    "test": "node test/unit.test.js",
+    "test": "node test/unit.test.js && node test/v035.test.js && node test/geometry.test.js",
+    "env": "bash -c 'source scripts/env.sh && env | grep -E \"ELECTRON_\"'",
+    "start:env": "bash -c 'source scripts/env.sh && electron .'",
+    "smoke:env": "bash -c 'source scripts/env.sh && electron . --smoke-test'",
     "dist": "electron-builder --linux",
     "dist:linux": "electron-builder --linux",
     "dist:win": "electron-builder --win",
@@ -78,5 +81,8 @@
     },
     "publish": null,
     "artifactName": "${productName}-${version}-${arch}.${ext}"
+  },
+  "allowScripts": {
+    "electron@34.5.8": true
   }
 }

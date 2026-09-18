@@ -2,5 +2,16 @@ node_modules/
 .npm-cache/
 .electron-cache/
 dist/
+out/
 *.log
+npm-debug.log*
 .DS_Store
+Thumbs.db
+
+# 冒烟测试 / 验证脚本的临时 HOME（含截图与结果 JSON）
+.runhome/
+
+# 编辑器
+.vscode/
+.idea/
+*.swp

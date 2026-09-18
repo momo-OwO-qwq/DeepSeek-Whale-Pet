@@ -34,7 +34,7 @@
 - 鲸鱼窗口渲染：`renderer/pet.js` + `renderer/pet.css` + 入口 `renderer/pet.html`
 - 设置窗口渲染：`renderer/menu.js` + `renderer/menu.css` + `renderer/menu.html`
 - 逻辑库：`lib/config.js`（配置）、`lib/balance.js`（余额/用量/定价）、`lib/ledger.js`（记账）、`lib/lines.js`（台词池）
-- 素材：`assets/`（DSniang1.png 主图、DSniang03.png 预警图、D1/D2/Ya1/Ya2 音效、rua.gif 动图）
+- 素材：`assets/`（DSniang1.png 主图、DSniang-sad.png 预警表情、DSniang-happy.png 播报表情、D1/D2/Ya1/Ya2 音效、rua.gif 动图）
 - 测试：`test/unit.test.js`（纯 Node 单元测试，`npm test`）；冒烟测试 `npm run smoke`（主进程内 runSmoke）
 - 打包：electron-builder（`npm run dist:win` / `dist:linux` / `dist:mac`）
 
@@ -78,7 +78,8 @@ Electron 中这三者**全部是 DIP 坐标**，无需任何换算：
     peakText: true, bubbleOn: true, bubbleInterval: 120,
     idleFade: true, idleOpacity: 0.6, refreshInterval: 60,
     lowBalanceThreshold: 5, alertImage: false,
-    alertImgPath: 'assets/DSniang03.png', mainImgPath: 'assets/DSniang1.png',
+    alertImgPath: 'assets/DSniang-sad.png', mainImgPath: 'assets/DSniang1.png',
+    dropImgPath: 'assets/DSniang-happy.png', dropImage: true, dropImgHoldMs: 2600,
     theme: 'system', bubbleTextOk: 'DeepSeek 余额', bubbleTextLow: '余额预警',
     textColorOk: '', textColorLow: '', peakTextOff: '', peakTextOn: '',
     pressSound: '', releaseSound: '', autostart: false,

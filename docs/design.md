@@ -82,6 +82,7 @@ petWin.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
 - **验证**：冒烟测试向渲染进程派发物理一致的合成 PointerEvent（movementX 探针 [-12,-20] 确认构造事件携带），三条断言连续多轮通过：落点 = 起点 + Σmovement（exact）、轨迹单调无回摆（noTwitch）、连续拖拽贴到 workArea 上边缘（reached）。真实噪声事件（真实鼠标微动）与合成事件混杂时依旧稳定（守卫逐事件独立）。
 - 松手回渲染进程 `finishDrag`：**自由定位**（v1.4 起取消四分之一贴边吸附与左吸附镜像翻转——实测吸附会在放大窗口后把鲸鱼拽回边缘，导致「修改大小后难以移动」；现在仅 clamp 在桌面 workArea 内，可自由贴到任意边缘），随后 `setConfig({posX, posY})` 记忆位置。
 - **缩放固定角**：缩放改变窗口尺寸时固定鲸鱼右下角（`fixX = posX + oldW`、`fixY = posY + oldH`），随后钳制回 workArea。
+- **缩放空气墙修复（v1.5.5）**：由大变小时右侧/底部曾出现拖不过去的死区。根因是窗口可停放范围按**旧**窗口尺寸计算，三处尺寸不同源：`dragState` 存了 `drag:start` 时的图形 px 快照、`window:resize` 立即返回请求尺寸、`setScale` 在布局生效前就钳制。现改为：几何统一收进 `lib/geometry.js`；图形矩形按**归一化比例**保存、钳制时按当前窗口还原；`window:resize` 轮询到真实尺寸落地才返回；`setScale` 等一帧再钳制并二次收敛。回归测试见 `test/geometry.test.js`。
 - **方向感知锚点**：GNOME/Wayland 会把 XWayland 窗口原点钳制在 `(0, 32)` ↔ `(屏宽−w, 屏高−h)`（实测 `xdotool windowmove` 验证），因此右下角锚定的鲸鱼可触及右/下边缘，但结构上无法到达左/上边缘。解决：窗口中心在屏幕左半时把鲸鱼**镜像到窗口左缘**（`scaleX(-1)`，文字/动图反向），使其贴住左边缘；右半则锚定右缘。锚点随 `finishDrag` 释放位置切换（平滑 .3s 过渡）。
 - **启动尺寸即时生效**：v1.6 修复——`createPetWindow` 由配置缩放尺寸创建窗口（此前硬编码 320×320，启动时 `setSize` 在窗口映射前被 WM 丢弃，改过的尺寸不生效）。
 - **验证**：smoke 向渲染进程派发携带显式 movementX 的合成 PointerEvent（走真实处理器代码），断言落点 = 起点 + movement 总和（exact）、轨迹单调（noTwitch）、连续拖拽贴到 workArea 上边缘（reached）。
@@ -132,10 +133,11 @@ petWin.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
 
 ### 4.7 主图 / 预警图（可上传，彼此独立）
 
-- 配置：`mainImgPath`（默认 `assets/DSniang1.png`）、`alertImgPath`（默认 `assets/DSniang03.png`；**若该素材不存在则置空 = 无默认预警图**，需用户上传或添加素材）、`alertImage`（默认 false）。
+- 配置：`mainImgPath`（默认 `assets/DSniang1.png`）、`alertImgPath`（默认 `assets/DSniang-sad.png`「委屈」表情）、`alertImage`（默认 false）。
+- **余额减少播报表情**（v0.3.5 新增）：`dropImgPath`（默认 `assets/DSniang-happy.png`「开心」表情）、`dropImage`（默认 true）、`dropImgHoldMs`（默认 2600ms，0 = 不切换）。余额下降被观测到时切到该表情并保持一段时间后自动回落；与任务结束音共用同一个信号。**优先级：预警表情 > 播报表情 > 自定义角色 > 主图**（预警状态不会被播报覆盖）。
 - **上传**：设置窗「选择图片」→ 主进程 `dialog.showOpenDialog`（png/jpg/jpeg/gif/webp）→ **复制**到 `~/.config/whale-pet/images/main.*` 或 `alert.*` → 写回绝对路径到配置（与源文件解耦，源文件移动/删除不影响）；「恢复默认」写回内置相对路径。
 - **触发**：`alertImage === true` 且余额正常（status ok）且 `0 <= 余额 < lowBalanceThreshold` 时使用预警图，否则使用主图 —— 两张图互不干扰、各自独立。
-- **换图**：`img.src` 切换并重建 alpha 命中探针（`setupHitTest(src)`，探针加载期间放宽为全命中保证可点击）；预警时叠加红色 `!` 徽标。
+- **换图**：`img.src` 切换并重建 alpha 命中探针（`setupHitTest(src)`，探针加载期间放宽为全命中保证可点击）；预警时叠加红色 `!` 徽标。三张内置表情（主图 / 委屈 / 开心）统一为 610×610 RGBA cut-out，缺失时由 `getEffective` 置空以避免加载不存在的图。
 - 判定在每次 `render()` 中执行（含余额变化、模式切换、配置广播），与低余额通知共用阈值语义。
 
 ### 4.8 自定义气泡文案 + 颜色 + 暗色主题 + 原生设置窗口
@@ -144,7 +146,12 @@ petWin.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
 - **文案颜色**：`textColorOk` / `textColorLow`（`#rrggbb` 或空=继承默认 #536ba9），随文案状态切换。菜单提供色板 + 「默认」按钮。
 - **峰谷自定义词**：`peakTextOff` / `peakTextOn`（各限 12 字符）；非空时覆盖内置/峰谷模式文案。
 - **暗色主题**：设置窗 `theme`（system/light/dark）。菜单页用 CSS 变量双主题，`menu.js` 根据配置 + `matchMedia('(prefers-color-scheme: dark)')` 设置 `html[data-theme]` 并监听系统变化；**主进程同步 `nativeTheme.themeSource`**，系统标题栏/原生控件/下拉弹层随之换肤。选择栏修复：`appearance:none` + 实色背景（`--wm-select-bg`）+ 自绘箭头 + `option` 显式前景/背景色（Chromium 原生 select 会被系统白底覆盖 → 暗色下白字白底）。
-- **原生设置窗口**：frame:true（系统标题栏）、非透明、非置顶、可关闭；Tab 标签页（账户/数据/外观/文案/音效/图片台词）在页面内切换，内容分区；不再 `blur` 自动收起。**按需重建**：用户直接叉掉窗口后（closed → null），`openMenu()` 会以鲸鱼旁的坐标重新创建并打开（坐标随构造函数传入，避免部分 WM 首次 map 时默认居中）；托盘/右键/鲸鱼按钮统一走 `openMenu()`。
+- **原生设置窗口**：frame:true（系统标题栏）、非透明、非置顶、可关闭；Tab 标签页（账户/数据/界面/文案/音效/**泡泡**/形象）在页面内切换，内容分区；不再 `blur` 自动收起。**按需重建**：用户直接叉掉窗口后（closed → null），`openMenu()` 会以鲸鱼旁的坐标重新创建并打开（坐标随构造函数传入，避免部分 WM 首次 map 时默认居中）；托盘/右键/鲸鱼按钮统一走 `openMenu()`。
+
+> v0.3.5 起 Tab 由 6 个增至 7 个（新增「泡泡」），Tab 条改用
+> `repeat(auto-fit, minmax(56px, 1fr))` 自适应列数；新 Tab 的逻辑在
+> `renderer/menu-v035.js`，与既有 6 个 Tab 的 `menu.js` 分离。
+> 详见 [`design-v035.md`](design-v035.md)。
 
 ### 4.9 自定义音效 + 随机台词/动图池 + 去 Emoji
 
