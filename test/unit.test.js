@@ -204,20 +204,38 @@ test('config: 消毒 / 原子保存 / 环境变量覆盖', () => {
   assert.strictEqual(s.peakMode, 'default')
   assert.strictEqual(s.posH, null)
 
-  // 预警换图：默认关闭；预警图默认取 DSniang03.png（素材缺失 → getEffective 置空）
+  // 预警换图：默认关闭；预警图默认取随包的「委屈」表情
   const sa = config.sanitize({})
   assert.strictEqual(sa.alertImage, false, '预警换图默认关闭')
-  assert.strictEqual(sa.alertImgPath, 'assets/DSniang03.png')
+  assert.strictEqual(sa.alertImgPath, 'assets/DSniang-sad.png', '预警图默认随包素材')
   assert.strictEqual(sa.mainImgPath, 'assets/DSniang1.png', '主图默认内置素材')
   assert.strictEqual(sa.theme, 'system', '主题默认跟随系统')
-  // 机器上无 assets/DSniang03.png → 无默认预警图（alertImgPath 置空）
+  // 两个新表情素材都应随包存在 → getEffective 保留（不置空）
   const effAlert = config.getEffective()
-  assert.strictEqual(effAlert.alertImgPath, '', '无 DSniang03.png 时无默认预警图')
+  assert.strictEqual(effAlert.alertImgPath, 'assets/DSniang-sad.png', '预警表情素材应存在')
+  assert.strictEqual(effAlert.dropImgPath, 'assets/DSniang-happy.png', '播报表情素材应存在')
   const sa2 = config.sanitize({ alertImage: true, alertImgPath: 'assets/warn.png' })
   assert.strictEqual(sa2.alertImage, true)
   assert.strictEqual(sa2.alertImgPath, 'assets/warn.png')
   const sa3 = config.sanitize({ alertImage: true, alertImgPath: '   ' })
-  assert.strictEqual(sa3.alertImgPath, 'assets/DSniang03.png', '空路径回退默认')
+  assert.strictEqual(sa3.alertImgPath, 'assets/DSniang-sad.png', '空路径回退默认')
+
+  // 余额减少播报形象（v0.3.5 新增）
+  const sd = config.sanitize({})
+  assert.strictEqual(sd.dropImage, true, '播报换图默认开启')
+  assert.strictEqual(sd.dropImgPath, 'assets/DSniang-happy.png', '播报表情默认随包素材')
+  assert.strictEqual(sd.dropImgHoldMs, 2600, '保持时长默认 2600ms')
+  // 空串是合法值（= 不切换表情），不能被「非空才写入」的写法吃掉
+  assert.strictEqual(config.sanitize({ dropImgPath: '' }).dropImgPath, '', '空串应保留为不切换')
+  // 时长越界钳制
+  assert.strictEqual(config.sanitize({ dropImgHoldMs: -100 }).dropImgHoldMs, 0)
+  assert.strictEqual(config.sanitize({ dropImgHoldMs: 9e9 }).dropImgHoldMs, 60000)
+  assert.strictEqual(config.sanitize({ dropImage: 'yes' }).dropImage, true, '非布尔值不覆盖默认')
+
+  // 内置素材缺失时应置空（避免渲染层加载不存在的图）
+  const savedDrop = config.DEFAULTS.dropImgPath
+  assert.strictEqual(config.getEffective().dropImgPath, savedDrop,
+    '存在时保留；缺失时置空由 getEffective 负责（此处素材已随包提供）')
 
   // 主图/主题/气泡文案
   const s4 = config.sanitize({ mainImgPath: '/tmp/my-whale.png', theme: 'dark', bubbleTextOk: '  余额还够用  ', bubbleTextLow: '快没余额了！！！！！超过了二十个字符限制' })
