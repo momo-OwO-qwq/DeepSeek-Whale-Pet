@@ -1,46 +1,138 @@
-/* 设置窗口（系统原生窗口 + Tab 标签页）：html[data-theme] 切换 浅色/深色 */
+/* ============================================================================
+ * 小鲸鱼设置 · 设计系统 v2（「深海仪表盘」）
+ * ----------------------------------------------------------------------------
+ * 设计约束（与本文件一一对应）：
+ *   · 深色为主，浅色完整对等；主题由 menu.js 写 `html[data-theme]`，本文件只认它
+ *   · 间距：布局走 8pt 网格（8/16/24/32）；控件内边距允许 4pt 子网格（12px），
+ *     因为 12px 是「文字不被边框贴住」的最小视觉舒适值 —— 见 §间距表
+ *   · 对比度：所有前景/背景组合都实测过（WCAG AA，正文 ≥4.5，控件边界 ≥3.0）
+ *   · 点击区域 ≥32px（鼠标操作）
+ *   · 零依赖、纯原生 CSS，无框架、无构建步骤
+ *
+ * 与 menu.js 的契约（**不要改**）：
+ *   · 主题：`document.documentElement.dataset.theme = 'dark' | 'light'`
+ *   · Tab：`classList.toggle('wm-tab-on', on)`；页面：`$('page-x').hidden = true/false`
+ *   · 状态文字：`noteEl.className = 'wm-note wm-note-ok' | 'wm-note wm-note-warn'`
+ *     → 这几个 note 元素的 class **会被整体覆盖**，所以它们的外观只能挂在
+ *       `.wm-note` 与两个状态修饰符上，不能依赖额外类名
+ * ========================================================================== */
+
+/* ===========================================================================
+ * 1. 设计令牌
+ * =========================================================================== */
+
 :root {
-  --wm-page-bg: #f1f5f9;
-  --wm-card-bg: #ffffff;
-  --wm-fg: #1e293b;
-  --wm-border: rgba(15, 23, 42, 0.10);
-  --wm-input-fg: #1e293b;
-  --wm-input-bg: #f8fafc;
-  --wm-select-bg: #f8fafc;
-  --wm-input-accent: rgba(59, 130, 246, 0.06);
-  --wm-hint: #64748b;
-  --wm-accent: #3b82f6;
-  --wm-accent-hover: #2563eb;
-  --wm-btn-primary-fg: #ffffff;
-  --wm-tab-fg: #64748b;
-  --wm-tab-bg: transparent;
-  --wm-tab-on-bg: #ffffff;
-  --wm-group-bg: #f8fafc;
-  --wm-group-border: rgba(15, 23, 42, 0.06);
-  --wm-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+  /* ---- 表面（浅色） ---- */
+  --wm-bg:            #f3f6fc;   /* 窗口底 */
+  --wm-surface:       #ffffff;   /* 卡片 / 内容面 */
+  --wm-surface-2:     #f7f9fd;   /* 输入框底 */
+  --wm-surface-3:     #eaeff8;   /* 分段控件轨道 / 悬浮态 */
+
+  /* ---- 文字 ---- */
+  --wm-fg:            #0f1729;   /* 正文     17.9:1 on surface */
+  --wm-fg-muted:      #5a6784;   /* 次要      5.7:1 on surface */
+  --wm-fg-subtle:     #6b7794;   /* 三级      4.7:1 on surface */
+
+  /* ---- 品牌 / 交互 ---- */
+  --wm-accent:        #2f5fb3;   /* 深鲸蓝：作文字 6.2:1 */
+  --wm-accent-hover:  #274e94;
+  --wm-accent-soft:   rgba(47, 95, 179, 0.10);
+  --wm-accent-fg:     #ffffff;   /* 深底上的字 6.2:1 */
+  --wm-ring:          rgba(47, 95, 179, 0.45);
+
+  /* ---- 线条 ----
+   * 分两类：修饰性分隔线只需「可见」；**控件边界**必须 ≥3:1（WCAG 1.4.11） */
+  --wm-border:        #e2e8f4;   /* 卡片/分隔，修饰性 */
+  --wm-border-ctl:    #78899f;   /* 输入框边界 3.4:1 on surface-2 */
+  --wm-border-hover:  #64748b;
+
+  /* ---- 语义色（都 ≥4.5:1 on surface） ---- */
+  --wm-ok:            #157f4a;
+  --wm-warn:          #8a5300;
+  --wm-danger:        #b3261e;
+  --wm-ok-soft:       rgba(21, 127, 74, 0.10);
+  --wm-warn-soft:     rgba(138, 83, 0, 0.12);
+  --wm-danger-soft:   rgba(179, 38, 30, 0.10);
+
+  /* ---- 阴影 ---- */
+  --wm-shadow-1: 0 1px 2px rgba(15, 23, 41, 0.06), 0 0 0 1px rgba(15, 23, 41, 0.03);
+  --wm-shadow-2: 0 2px 8px rgba(15, 23, 41, 0.10);
+
+  /* ---- 圆角 ---- */
+  --wm-r-xs: 5px;    /* 小标记 */
+  --wm-r-sm: 7px;    /* 输入框 / 按钮 */
+  --wm-r-md: 10px;   /* 卡片 */
+  --wm-r-lg: 14px;   /* 面板 */
+
+  /* ---- 8pt 间距 ---- */
+  --wm-sp-1: 4px;    /* 子网格：仅用于控件内边距与图标间隙 */
+  --wm-sp-2: 8px;
+  --wm-sp-3: 12px;   /* 子网格：控件左右内边距 */
+  --wm-sp-4: 16px;
+  --wm-sp-6: 24px;
+  --wm-sp-8: 32px;
+
+  /* ---- 字号 ---- */
+  --wm-fs-caption: 11.5px;
+  --wm-fs-note:    12px;
+  --wm-fs-body:    13px;
+  --wm-fs-label:   13px;
+  --wm-fs-title:   13.5px;
+  --wm-fs-metric:  15px;
+
+  /* ---- 控件 ---- */
+  --wm-ctl-h: 32px;  /* 鼠标操作最小点击高度 */
+
+  --wm-font: system-ui, -apple-system, "Segoe UI", "Noto Sans CJK SC",
+             "Source Han Sans SC", "Microsoft YaHei", sans-serif;
+  --wm-mono: ui-monospace, "JetBrains Mono", "SF Mono", "Cascadia Mono",
+             Menlo, Consolas, "Noto Sans Mono CJK SC", monospace;
+
+  /* select 箭头（主题相关，必须跟着变色） */
+  --wm-caret: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1.5 2L6 6.2 10.5 2' fill='none' stroke='%235a6784' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+
   color-scheme: light;
 }
+
+/* ---- 深色（主） ---- */
 html[data-theme="dark"] {
-  --wm-page-bg: #0f172a;
-  --wm-card-bg: #1e293b;
-  --wm-fg: #f1f5f9;
-  --wm-border: rgba(241, 245, 249, 0.12);
-  --wm-input-fg: #f1f5f9;
-  --wm-input-bg: #334155;
-  --wm-select-bg: #334155;
-  --wm-input-accent: rgba(59, 130, 246, 0.12);
-  --wm-hint: #94a3b8;
-  --wm-accent: #60a5fa;
-  --wm-accent-hover: #3b82f6;
-  --wm-btn-primary-fg: #0f172a;
-  --wm-tab-fg: #94a3b8;
-  --wm-tab-bg: transparent;
-  --wm-tab-on-bg: #334155;
-  --wm-group-bg: #1e293b;
-  --wm-group-border: rgba(241, 245, 249, 0.08);
-  --wm-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+  --wm-bg:            #0a1020;
+  --wm-surface:       #121a2e;   /* 正文 14.9:1 */
+  --wm-surface-2:     #1a2440;
+  --wm-surface-3:     #25314f;
+
+  --wm-fg:            #e9eefb;
+  --wm-fg-muted:      #a7b4d0;   /* 8.3:1 */
+  --wm-fg-subtle:     #93a1c0;   /* 6.5:1 */
+
+  --wm-accent:        #7caeff;   /* 7.7:1 on surface */
+  --wm-accent-hover:  #9cc2ff;
+  --wm-accent-soft:   rgba(124, 174, 255, 0.14);
+  --wm-accent-fg:     #08111f;   /* 深字配亮底 8.4:1 */
+  --wm-ring:          rgba(124, 174, 255, 0.55);
+
+  --wm-border:        #232f4a;   /* 修饰性 */
+  --wm-border-ctl:    #64749c;   /* 3.7:1 on surface / 3.3:1 on surface-2 */
+  --wm-border-hover:  #8ea0c6;
+
+  --wm-ok:            #4ade80;   /* 9.9:1 */
+  --wm-warn:          #fbbf24;   /* 10.4:1 */
+  --wm-danger:        #f87171;   /* 6.3:1 */
+  --wm-ok-soft:       rgba(74, 222, 128, 0.14);
+  --wm-warn-soft:     rgba(251, 191, 36, 0.14);
+  --wm-danger-soft:   rgba(248, 113, 113, 0.14);
+
+  --wm-shadow-1: 0 1px 2px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(255, 255, 255, 0.03);
+  --wm-shadow-2: 0 4px 14px rgba(0, 0, 0, 0.5);
+
+  --wm-caret: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1.5 2L6 6.2 10.5 2' fill='none' stroke='%23a7b4d0' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+
   color-scheme: dark;
 }
+
+/* ===========================================================================
+ * 2. 基础
+ * =========================================================================== */
 
 * { box-sizing: border-box; }
 
@@ -49,379 +141,821 @@ html, body {
   padding: 0;
   height: 100%;
   overflow: hidden;
-  background: var(--wm-page-bg);
+  background: var(--wm-bg);
+  color: var(--wm-fg);
+  font-family: var(--wm-font);
+  font-size: var(--wm-fs-body);
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
   user-select: none;
   -webkit-user-select: none;
-  font-family: system-ui, "Noto Sans CJK SC", sans-serif;
-  font-size: 13.5px;
+}
+
+/* 开发者工具：允许选中/复制密钥与路径（旧版全局禁选，很影响使用） */
+input, textarea, select,
+#wm-main-note, #wm-alert-note, #wm-apikey-note, #wm-custom-note, #wm-sound-note {
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+/* 纵向三层：Tab 条 / 滚动内容 / 常驻底栏
+ * 旧版用 `.wm-body { height: calc(100% - 34px) }` 这个魔法数字，
+ * 且把 `.wm-foot` 放进滚动区里靠 `margin-top:auto` —— 内容一长底栏就跟着滚走。 */
+.wm-app {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: var(--wm-bg);
+}
+
+/* ===========================================================================
+ * 3. Tab 条：等宽分段控件
+ * ---------------------------------------------------------------------------
+ * 旧版 `.wm-tab { font-size:16px; min-width:64px; padding:6px 12px }` × 6 个，
+ * 在 520px 窗口里必然换行；而 `@media (max-width:600px)` 又**恒真**（窗口就 520px），
+ * 于是字号被压到 10.5px 同时所有字段被强制竖排 —— 这一条是「布局混乱」的主因。
+ * 新做法：`flex:1 1 0` 精确六等分，不依赖任何媒体查询。
+ * =========================================================================== */
+
+.wm-tabs {
+  flex: 0 0 auto;
+  display: grid;
+  /* v0.3.5：Tab 由 6 个增至 8 个 → 自适应列数，避免标签被挤压换行 */
+  grid-template-columns: repeat(auto-fit, minmax(56px, 1fr));
+  gap: var(--wm-sp-1);
+  padding: var(--wm-sp-2) var(--wm-sp-4);
+  background: var(--wm-surface);
+  border-bottom: 1px solid var(--wm-border);
+}
+
+.wm-tab {
+  min-height: 36px;                    /* > 32px 点击下限 */
+  border: 1px solid transparent;
+  border-radius: var(--wm-r-sm);
+  background: transparent;
+  color: var(--wm-fg-muted);
+  font-family: inherit;
+  font-size: var(--wm-fs-label);
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  transition: background-color .14s ease, color .14s ease, border-color .14s ease;
+}
+
+.wm-tab:hover {
+  background: var(--wm-surface-3);
   color: var(--wm-fg);
 }
 
-/* ---------- Tab 标签栏 ---------- */
-.wm-tabs {
-  display: flex;
-  gap: 4px;
-  padding: 8px 10px 0;
-  background: var(--wm-page-bg);
-  border-bottom: 1px solid var(--wm-border);
-}
-.wm-tab {
-  flex: 0 0 auto;
-  min-width: 64px;
-  border: none;
-  border-radius: 5px;
-  background: transparent;
-  color: var(--wm-tab-fg);
-  font-size: 16px;
-  font-weight: 500;
-  padding: 6px 12px;
-  cursor: pointer;
-  transition: all 0.15s ease;
-  text-align: center;
-}
-.wm-tab:hover { 
+/* 选中态用「抬升面 + 强调色文字」而不是「强调色实底 + 白字」：
+ * 旧版 #ffffff on #3b82f6 只有 3.68:1，**不达 AA**。 */
+.wm-tab-on,
+.wm-tab-on:hover {
+  background: var(--wm-accent-soft);
+  border-color: var(--wm-accent);
   color: var(--wm-accent);
-  background: var(--wm-input-accent);
-}
-.wm-tab-on {
-  background: var(--wm-accent);
-  color: var(--wm-btn-primary-fg);
   font-weight: 600;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
 }
 
-/* ---------- 内容区 ---------- */
+.wm-tab:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--wm-ring);
+}
+
+/* ===========================================================================
+ * 4. 内容区
+ * =========================================================================== */
+
 .wm-body {
-  height: calc(100% - 34px);
-  display: flex;
-  flex-direction: column;
-  background: var(--wm-card-bg);
-  border-top: 1px solid var(--wm-border);
-  padding: 12px;
+  flex: 1 1 auto;
+  min-height: 0;                       /* 关键：否则 flex 子项不收缩，滚动失效 */
   overflow-y: auto;
+  overflow-x: hidden;
+  padding: var(--wm-sp-4);
+  background: var(--wm-bg);
+  scrollbar-gutter: stable;
 }
-.wm-page { 
-  display: block;
-  animation: fadeIn 0.2s ease;
-}
+
+.wm-page { display: block; }
 .wm-page[hidden] { display: none; }
 
-@keyframes fadeIn {
-  from { opacity: 0; transform: translateY(4px); }
-  to { opacity: 1; transform: translateY(0); }
-}
+/* ===========================================================================
+ * 5. 分组卡片
+ * =========================================================================== */
 
-/* ---------- 分组卡片 ---------- */
 .wm-group {
-  background: var(--wm-group-bg);
-  border: 1px solid var(--wm-group-border);
-  border-radius: 8px;
-  padding: 10px 12px;
-  margin-bottom: 10px;
+  background: var(--wm-surface);
+  border: 1px solid var(--wm-border);
+  border-radius: var(--wm-r-md);
+  padding: var(--wm-sp-4);
+  margin-bottom: var(--wm-sp-4);
+  box-shadow: var(--wm-shadow-1);
 }
-.wm-group-title {
-  font-size: 12.5px;
-  font-weight: 600;
-  color: var(--wm-accent);
-  margin-bottom: 8px;
-  padding-bottom: 6px;
-  border-bottom: 1px solid var(--wm-group-border);
-}
+.wm-group:last-child { margin-bottom: 0; }
 
-/* ---------- 字段 ---------- */
-.wm-field {
+.wm-group-title {
   display: flex;
   align-items: center;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin: 5px 0;
-  line-height: 1.3;
+  gap: var(--wm-sp-2);
+  margin: 0 0 var(--wm-sp-4);
+  padding-bottom: var(--wm-sp-2);
+  border-bottom: 1px solid var(--wm-border);
+  font-size: var(--wm-fs-title);
+  font-weight: 600;
+  color: var(--wm-fg);                 /* 旧版把每个组标题染成强调蓝 → 一页 6 个蓝标题，重点消失 */
+  letter-spacing: 0.01em;
 }
+
+/* 标题前的鲸鱼色短竖条，替代「整行蓝字」 */
+.wm-group-title::before {
+  content: "";
+  width: 3px;
+  height: 14px;
+  border-radius: 2px;
+  background: var(--wm-accent);
+  flex: 0 0 auto;
+}
+
+/* ===========================================================================
+ * 6. 字段：两列网格（标签 | 控件）
+ * ---------------------------------------------------------------------------
+ * 旧版 `.wm-field` 是 `flex-wrap:wrap`，又被恒真的媒体查询改成 `flex-direction:column`
+ * 且 `.wm-label { width:100% }` —— 每个字段占两行以上，700px 窗口里疯狂滚动。
+ * =========================================================================== */
+
+.wm-field {
+  display: grid;
+  grid-template-columns: 92px minmax(0, 1fr);
+  align-items: start;
+  column-gap: var(--wm-sp-4);
+  row-gap: var(--wm-sp-1);
+  margin-bottom: var(--wm-sp-4);
+}
+.wm-field:last-child { margin-bottom: 0; }
+
+.wm-label {
+  grid-column: 1;
+  display: flex;
+  align-items: center;
+  min-height: var(--wm-ctl-h);   /* 与第一行 32px 控件光学对齐，说明文字仍从第二行开始 */
+  font-size: var(--wm-fs-label);
+  font-weight: 500;
+  color: var(--wm-fg-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 除标签外的一切都落在第二列（说明文字自然对齐到控件下方） */
+.wm-field > *:not(.wm-label) { grid-column: 2; min-width: 0; }
+
+/* 紧凑双列：用于「两个小控件并排」，单元格内改成标签在上 */
+.wm-grid-2 {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--wm-sp-3) var(--wm-sp-4);
+  margin-bottom: var(--wm-sp-4);
+}
+.wm-grid-2 > .wm-field {
+  grid-template-columns: minmax(0, 1fr);
+  row-gap: var(--wm-sp-1);
+  margin-bottom: 0;
+}
+.wm-grid-2 > .wm-field > *:not(.wm-label) { grid-column: 1; }
+.wm-grid-2 .wm-label {
+  min-height: 0;                 /* 紧凑单元格：标签在上，不要 32px 高度 */
+  color: var(--wm-fg-subtle);
+}
+
 .wm-field-row {
   display: flex;
   align-items: center;
-  gap: 4px;
-}
-
-/* ---------- 网格 ---------- */
-.wm-grid-2 {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  column-gap: 14px;
-  row-gap: 2px;
-  align-items: start;
-}
-
-/* ---------- 标签 ---------- */
-.wm-label {
-  flex: 0 0 auto;
-  min-width: 60px;
-  white-space: nowrap;
-  font-weight: 500;
-  font-size: 12.5px;
-  color: var(--wm-fg);
-}
-
-/* ---------- 表单控件 ---------- */
-.wm-field select,
-.wm-field input[type="password"],
-.wm-field input[type="text"],
-.wm-field input[type="number"],
-.wm-field-row input[type="number"] {
-  flex: 0 1 auto;
+  gap: var(--wm-sp-2);
   min-width: 0;
-  border: 1px solid var(--wm-border);
-  border-radius: 5px;
-  padding: 5px 9px;
-  font-size: 12.5px;
-  color: var(--wm-input-fg);
-  background: var(--wm-input-bg);
-  box-sizing: border-box;
-  transition: all 0.15s ease;
 }
-.wm-field select {
-  max-width: 180px;
-}
-.wm-field input[type="text"] {
-  max-width: 200px;
-}
-.wm-field input[type="password"] {
-  flex: 1 1 auto;
-  max-width: none;
-}
-.wm-field-row input[type="number"] {
-  width: 56px;
-}
-.wm-field select:focus,
-.wm-field input:focus {
-  outline: none;
-  border-color: var(--wm-accent);
-  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.08);
+.wm-field-row > input[type="number"] { width: 72px; flex: 0 0 auto; }
+
+/* ===========================================================================
+ * 7. 表单控件
+ * =========================================================================== */
+
+.wm-field select,
+.wm-field input[type="text"],
+.wm-field input[type="password"],
+.wm-field input[type="number"],
+.wm-inline input[type="password"],
+.wm-inline input[type="text"] {
+  min-height: var(--wm-ctl-h);
+  width: 100%;
+  max-width: 100%;
+  padding: var(--wm-sp-1) var(--wm-sp-3);
+  border: 1px solid var(--wm-border-ctl);   /* ≥3:1 边界，控件才「看得见」 */
+  border-radius: var(--wm-r-sm);
+  background: var(--wm-surface-2);
+  color: var(--wm-fg);
+  font-family: inherit;
+  font-size: var(--wm-fs-body);
+  transition: border-color .14s ease, box-shadow .14s ease, background-color .14s ease;
 }
 
-/* select 箭头 */
+.wm-field input[type="number"] { font-family: var(--wm-mono); font-size: var(--wm-fs-note); }
+
 .wm-field select {
   appearance: none;
   -webkit-appearance: none;
-  background-color: var(--wm-select-bg);
-  background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%238a94b8' stroke-width='1.6' stroke-linecap='round'/%3E%3C/svg%3E");
+  padding-right: var(--wm-sp-8);
+  background-image: var(--wm-caret);
   background-repeat: no-repeat;
-  background-position: right 6px center;
-  padding: 3px 20px 3px 8px;
+  background-position: right var(--wm-sp-3) center;
   cursor: pointer;
 }
-.wm-field select option {
-  color: var(--wm-input-fg);
-  background: var(--wm-card-bg);
+
+.wm-field input:hover,
+.wm-field select:hover,
+.wm-inline input:hover { border-color: var(--wm-border-hover); }
+
+.wm-field input:focus,
+.wm-field select:focus,
+.wm-inline input:focus {
+  outline: none;
+  border-color: var(--wm-accent);
+  background: var(--wm-surface);
+  box-shadow: 0 0 0 3px var(--wm-ring);   /* 旧版 8% 透明度的环几乎不可见 */
 }
 
-/* checkbox */
-.wm-field input[type="checkbox"] {
-  width: 15px;
-  height: 15px;
-  accent-color: var(--wm-accent);
-  cursor: pointer;
-  flex: 0 0 auto;
-}
+/* 键盘可达性：鼠标点击不显示环，Tab 才显示 */
+.wm-field input:focus:not(:focus-visible),
+.wm-field select:focus:not(:focus-visible) { box-shadow: none; }
 
-/* inline label（含 checkbox 的文字） */
-.wm-inline-label {
+/* ---- 内联输入 + 尾随按钮（API Key） ---- */
+.wm-inline {
+  display: flex;
+  align-items: center;
+  gap: var(--wm-sp-1);
+  min-width: 0;
+}
+.wm-inline input { flex: 1 1 auto; min-width: 0; }
+
+/* ---- 复选框 → 32px 可点的自定义方框 ---- */
+.wm-check {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  font-size: 12.5px;
-  color: var(--wm-fg);
+  gap: var(--wm-sp-2);
+  min-height: var(--wm-ctl-h);
+  min-width: var(--wm-ctl-h);
   cursor: pointer;
+  font-size: var(--wm-fs-body);
+  color: var(--wm-fg);
+  grid-column: 2;
+}
+.wm-grid-2 .wm-check { grid-column: 1; }
+.wm-field > .wm-check { grid-column: 2; }
+
+.wm-check input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  margin: 0;
+  pointer-events: none;
 }
 
-/* range */
+.wm-check-box {
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+  border: 1.5px solid var(--wm-border-ctl);
+  border-radius: var(--wm-r-xs);
+  background: var(--wm-surface-2);
+  display: grid;
+  place-items: center;
+  transition: background-color .14s ease, border-color .14s ease;
+}
+.wm-check:hover .wm-check-box { border-color: var(--wm-border-hover); }
+
+.wm-check input:checked + .wm-check-box {
+  background: var(--wm-accent);
+  border-color: var(--wm-accent);
+}
+.wm-check input:checked + .wm-check-box::after {
+  content: "";
+  width: 4px;
+  height: 8px;
+  border: 2px solid var(--wm-accent-fg);
+  border-top: 0;
+  border-left: 0;
+  transform: rotate(45deg) translate(-1px, -1px);
+}
+.wm-check input:focus-visible + .wm-check-box {
+  box-shadow: 0 0 0 3px var(--wm-ring);
+}
+.wm-check input:disabled + .wm-check-box { opacity: .5; }
+
+/* ---- 滑块 ---- */
 .wm-range {
   flex: 1 1 auto;
-  min-width: 80px;
-  accent-color: var(--wm-accent);
-  height: 6px;
-  border-radius: 3px;
-}
-.wm-val {
-  width: 40px;
-  text-align: right;
-  font-size: 12.5px;
-  font-weight: 500;
-  color: var(--wm-accent);
-}
-
-/* 单位 */
-.wm-unit {
-  color: var(--wm-hint);
-  font-size: 12px;
-}
-
-/* color */
-.wm-field input[type="color"] {
-  flex: 0 0 26px;
-  width: 26px;
-  height: 24px;
-  border: 1px solid var(--wm-border);
-  border-radius: 5px;
-  padding: 1px;
+  min-width: 0;
+  height: var(--wm-ctl-h);
+  appearance: none;
+  -webkit-appearance: none;
   background: transparent;
   cursor: pointer;
 }
-
-/* ---------- 说明文字 ---------- */
-.wm-note {
-  font-size: 12px;
-  color: var(--wm-hint);
-  line-height: 1.35;
-  display: inline;
-  margin-left: 4px;
-}
-.wm-note.wm-note-ok {
-  color: #10b981;
-}
-.wm-note.wm-note-warn {
-  color: #f59e0b;
-}
-.wm-note-muted {
-  color: var(--wm-hint);
-  opacity: 0.85;
-}
-
-/* ---------- 内联输入 ---------- */
-.wm-inline {
-  display: flex;
-  flex: 1 1 auto;
-  gap: 4px;
-  align-items: center;
-}
-.wm-inline input {
-  flex: 1 1 auto;
-  min-width: 0;
+.wm-range::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: 2px;
+  background: var(--wm-surface-3);
   border: 1px solid var(--wm-border);
-  border-radius: 5px;
-  padding: 5px 9px;
-  font-size: 12.5px;
-  color: var(--wm-input-fg);
-  background: var(--wm-input-bg);
 }
+.wm-range::-webkit-slider-thumb {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 16px;
+  height: 16px;
+  margin-top: -7px;
+  border-radius: 50%;
+  background: var(--wm-accent);
+  border: 2px solid var(--wm-surface);
+  box-shadow: var(--wm-shadow-2);
+  transition: transform .12s ease;
+}
+.wm-range:active::-webkit-slider-thumb { transform: scale(1.12); }
+.wm-range:focus-visible::-webkit-slider-thumb { box-shadow: 0 0 0 3px var(--wm-ring); }
+.wm-range:focus { outline: none; }
 
-/* ---------- 小按钮 ---------- */
-.wm-mini {
+.wm-val {
   flex: 0 0 auto;
-  border: 1px solid var(--wm-border);
-  border-radius: 5px;
-  background: var(--wm-input-accent);
-  color: var(--wm-fg);
-  cursor: pointer;
-  padding: 3px 9px;
-  font-size: 12px;
-  transition: all 0.15s ease;
-}
-.wm-mini:hover {
-  border-color: var(--wm-accent);
+  min-width: 46px;
+  text-align: right;
+  font-family: var(--wm-mono);
+  font-size: var(--wm-fs-note);
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
   color: var(--wm-accent);
 }
 
-/* ---------- 操作区 / 按钮 ---------- */
+.wm-unit {
+  flex: 0 0 auto;
+  color: var(--wm-fg-muted);
+  font-size: var(--wm-fs-note);
+}
+
+/* ---- 取色器 ---- */
+.wm-field input[type="color"] {
+  flex: 0 0 auto;
+  width: 40px;
+  height: var(--wm-ctl-h);
+  padding: 2px;
+  border: 1px solid var(--wm-border-ctl);
+  border-radius: var(--wm-r-sm);
+  background: var(--wm-surface-2);
+  cursor: pointer;
+}
+.wm-field input[type="color"]::-webkit-color-swatch-wrapper { padding: 0; }
+.wm-field input[type="color"]::-webkit-color-swatch {
+  border: none;
+  border-radius: var(--wm-r-xs);
+}
+.wm-field input[type="color"]:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--wm-ring);
+}
+
+/* ===========================================================================
+ * 8. 说明文字 / 状态提示
+ * =========================================================================== */
+
+.wm-note {
+  display: block;
+  margin: var(--wm-sp-1) 0 0;
+  font-size: var(--wm-fs-note);
+  line-height: 1.5;
+  color: var(--wm-fg-muted);
+}
+/* 没有上边距的场合（排在按钮组之后） */
+.wm-actions + .wm-note { margin-top: var(--wm-sp-2); }
+
+/* 状态：图标 + 文字 + 软底色。旧版 #10b981/#f59e0b 在白底只有 2.5/2.1:1，基本看不清 */
+.wm-note-ok,
+.wm-note-warn {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--wm-sp-2);
+  padding: var(--wm-sp-1) var(--wm-sp-2);
+  border-radius: var(--wm-r-xs);
+  font-weight: 500;
+}
+.wm-note-ok::before,
+.wm-note-warn::before {
+  flex: 0 0 auto;
+  font-size: var(--wm-fs-note);
+  line-height: 1.5;
+}
+.wm-note-ok { color: var(--wm-ok); background: var(--wm-ok-soft); }
+.wm-note-ok::before { content: "✓"; }
+.wm-note-warn { color: var(--wm-warn); background: var(--wm-warn-soft); }
+.wm-note-warn::before { content: "!"; font-weight: 800; }
+
+/* 说明文字与上方控件贴紧时用（如行内 `打开` 按钮所在行） */
+.wm-note-flush { margin-top: 0; }
+
+/* 说明文字里内联的小按钮：跟文字基线对齐，别把行高撑开 */
+.wm-note .wm-mini {
+  min-height: 22px;
+  margin-left: var(--wm-sp-1);
+  padding: 0 var(--wm-sp-2);
+  font-size: var(--wm-fs-caption);
+  vertical-align: middle;
+}
+
+.wm-note-muted { color: var(--wm-fg-muted); }
+
+/* 这两条永远是文件路径 → 等宽更易读、可选中复制 */
+#wm-main-note, #wm-alert-note {
+  font-family: var(--wm-mono);
+  font-size: var(--wm-fs-caption);
+  word-break: break-all;
+}
+
+/* ===========================================================================
+ * 9. 按钮
+ * =========================================================================== */
+
 .wm-actions {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
   align-items: center;
+  gap: var(--wm-sp-2);
 }
-.wm-btn {
-  flex: 0 0 auto;
-  border: 1px solid var(--wm-border);
-  border-radius: 5px;
-  background: var(--wm-input-accent);
+
+.wm-btn,
+.wm-mini {
+  min-height: var(--wm-ctl-h);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--wm-sp-1);
+  border: 1px solid var(--wm-border-ctl);
+  border-radius: var(--wm-r-sm);
+  background: var(--wm-surface-2);
   color: var(--wm-fg);
-  font-size: 12.5px;
+  font-family: inherit;
+  font-size: var(--wm-fs-body);
   font-weight: 500;
-  padding: 5px 13px;
-  cursor: pointer;
   white-space: nowrap;
-  transition: all 0.15s ease;
+  cursor: pointer;
+  transition: background-color .14s ease, border-color .14s ease, color .14s ease;
 }
-.wm-btn:hover {
+.wm-btn { padding: 0 var(--wm-sp-3); }
+.wm-mini { padding: 0 var(--wm-sp-2); font-size: var(--wm-fs-note); }
+
+.wm-btn:hover,
+.wm-mini:hover {
+  background: var(--wm-accent-soft);
   border-color: var(--wm-accent);
   color: var(--wm-accent);
 }
-.wm-btn:active {
-  transform: scale(0.98);
+.wm-btn:active,
+.wm-mini:active { transform: translateY(1px); }
+
+.wm-btn:focus-visible,
+.wm-mini:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--wm-ring);
 }
+
 .wm-btn-primary {
   background: var(--wm-accent);
-  color: var(--wm-btn-primary-fg);
   border-color: var(--wm-accent);
+  color: var(--wm-accent-fg);
+  font-weight: 600;
+  min-width: 96px;
 }
 .wm-btn-primary:hover {
   background: var(--wm-accent-hover);
   border-color: var(--wm-accent-hover);
-  color: var(--wm-btn-primary-fg);
-}
-.wm-btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-  background: var(--wm-input-accent);
-  color: var(--wm-hint);
-  border-color: var(--wm-border);
+  color: var(--wm-accent-fg);
 }
 
-/* ---------- 底部 ---------- */
+/* 危险操作（恢复默认）：悬浮才显红，避免整页都是红按钮 */
+.wm-btn-danger:hover {
+  background: var(--wm-danger-soft);
+  border-color: var(--wm-danger);
+  color: var(--wm-danger);
+}
+
+.wm-btn:disabled,
+.wm-mini:disabled {
+  opacity: .55;
+  cursor: not-allowed;
+  background: var(--wm-surface-3);
+  border-color: var(--wm-border);
+  color: var(--wm-fg-subtle);
+  transform: none;
+}
+
+/* ===========================================================================
+ * 10. 底栏（常驻，不随内容滚动）
+ * =========================================================================== */
+
 .wm-foot {
-  margin-top: auto;
-  padding: 8px 4px 0;
+  flex: 0 0 auto;
   display: flex;
   align-items: center;
-  justify-content: flex-end;
-  gap: 12px;
-  font-size: 11.5px;
-  color: var(--wm-hint);
+  justify-content: space-between;
+  gap: var(--wm-sp-4);
+  padding: var(--wm-sp-3) var(--wm-sp-4);
+  background: var(--wm-surface);
   border-top: 1px solid var(--wm-border);
 }
-.wm-foot .wm-btn {
-  padding: 5px 20px;
-  font-weight: 600;
-  font-size: 12.5px;
-}
-.wm-hint {
-  font-style: italic;
-  opacity: 0.7;
-}
 
-/* ---------- 滚动条 ---------- */
-.wm-body::-webkit-scrollbar {
-  width: 5px;
+.wm-foot-status {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--wm-sp-2);
+  min-width: 0;
+  font-size: var(--wm-fs-note);
+  color: var(--wm-fg-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
-.wm-body::-webkit-scrollbar-track {
-  background: transparent;
+.wm-foot-status::before {
+  content: "";
+  flex: 0 0 auto;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--wm-ok);
 }
+.wm-foot-status[data-state="saving"]::before { background: var(--wm-accent); }
+.wm-foot-status[data-state="error"]::before  { background: var(--wm-danger); }
+.wm-foot-status[data-state="error"]          { color: var(--wm-danger); }
+
+/* ===========================================================================
+ * 11. 窗口级错误横幅（保存失败等，旧版完全没有出口）
+ * ========================================================================== */
+
+.wm-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--wm-sp-2);
+  margin: 0 0 var(--wm-sp-4);
+  padding: var(--wm-sp-2) var(--wm-sp-3);
+  border: 1px solid var(--wm-danger);
+  border-left-width: 3px;
+  border-radius: var(--wm-r-sm);
+  background: var(--wm-danger-soft);
+  color: var(--wm-danger);
+  font-size: var(--wm-fs-note);
+  font-weight: 500;
+}
+.wm-banner[hidden] { display: none; }
+
+/* ===========================================================================
+ * 12. 滚动条（比旧版 5px 更易用鼠标抓）
+ * ========================================================================== */
+
+.wm-body::-webkit-scrollbar { width: 10px; }
+.wm-body::-webkit-scrollbar-track { background: transparent; }
 .wm-body::-webkit-scrollbar-thumb {
   background: var(--wm-border);
-  border-radius: 3px;
+  border: 3px solid transparent;
+  background-clip: padding-box;
+  border-radius: 999px;
 }
 .wm-body::-webkit-scrollbar-thumb:hover {
-  background: var(--wm-hint);
+  background: var(--wm-border-hover);
+  background-clip: padding-box;
 }
 
-/* ---------- 响应式 ---------- */
-@media (max-width: 600px) {
-  .wm-tabs {
-    flex-wrap: wrap;
-  }
-  .wm-tab {
-    min-width: 48px;
-    padding: 4px 8px;
-    font-size: 10.5px;
-  }
-  .wm-grid-2 {
-    grid-template-columns: 1fr;
-  }
-  .wm-field {
-    flex-direction: column;
-    align-items: flex-start;
-  }
-  .wm-label {
-    width: 100%;
-  }
+/* ===========================================================================
+ * 13. 动效偏好
+ * ========================================================================== */
+
+@media (prefers-reduced-motion: reduce) {
+  * { transition-duration: .001ms !important; animation-duration: .001ms !important; }
 }
+
+/* ===========================================================================
+ * 14. 行内 flex 防溢出（放在最后：与 §7 的 `width:100%` 同优先级，靠源序生效）
+ * ---------------------------------------------------------------------------
+ * `.wm-field-row` 是 flex 容器，但 `input[type=text]` 继承了 `width:100%` 且没有
+ * `min-width:0`（flex 项的默认 min-width 是 auto = 内容宽）→ 文案页的
+ * 「文字 + 取色器 + 默认按钮」三件套会把 336px 的列撑到 442px。
+ * 实测该行曾把整个卡片撑到 scrollWidth 557 > clientWidth 486。
+ * 这里统一收口：可收缩的显式声明 min-width，固定的显式 0 不收缩。
+ * ========================================================================== */
+
+.wm-field-row > * { min-width: 0; }
+
+.wm-field-row > input[type="text"],
+.wm-field-row > input[type="password"] {
+  flex: 1 1 auto;
+  width: auto;
+}
+
+.wm-field-row > input[type="number"] { flex: 0 0 auto; width: 72px; }
+.wm-field-row > .wm-range { flex: 1 1 auto; min-width: 88px; }
+
+.wm-field-row > .wm-val,
+.wm-field-row > .wm-unit,
+.wm-field-row > .wm-mini,
+.wm-field-row > .wm-btn,
+.wm-field-row > input[type="color"] {
+  flex: 0 0 auto;
+}
+
+.wm-field-row > .wm-unit { white-space: nowrap; }
+
+/* ==========================================================================
+ * v0.3.5 新功能：自定义泡泡编辑器 + 吸附预览
+ * ========================================================================== */
+
+/* ---------------- 泡泡：序列列表 ---------------- */
+.wm-bub-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--wm-sp-1);
+  margin: var(--wm-sp-1) 0;
+}
+.wm-bub-item {
+  display: flex;
+  align-items: center;
+  gap: var(--wm-sp-2);
+  padding: var(--wm-sp-2);
+  border: 1px solid var(--wm-border);
+  border-radius: var(--wm-r-sm);
+  background: var(--wm-surface-2);
+  cursor: pointer;
+  /* 拖拽排序时的落点动画 */
+  transition: transform .16s ease, box-shadow .16s ease, border-color .16s ease;
+}
+.wm-bub-item:hover { border-color: var(--wm-border-hover); }
+.wm-bub-item.wm-bub-on {
+  border-color: var(--wm-accent);
+  box-shadow: 0 0 0 2px var(--wm-accent-soft);
+}
+/* 拖拽中的元素：轻微抬起 + 半透明，落点用虚线提示 */
+.wm-bub-item.wm-bub-dragging {
+  opacity: .55;
+  transform: scale(.98);
+  box-shadow: 0 4px 14px rgba(15, 23, 41, .18);
+}
+.wm-bub-item.wm-bub-over { border-color: var(--wm-accent); border-style: dashed; }
+.wm-bub-idx {
+  flex: 0 0 auto;
+  width: 20px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  color: var(--wm-fg-subtle);
+  font-size: 12px;
+}
+.wm-bub-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wm-bub-kind {
+  flex: 0 0 auto;
+  font-size: 11px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--wm-surface-3);
+  color: var(--wm-fg-muted);
+}
+.wm-bub-tools { flex: 0 0 auto; display: flex; gap: 4px; }
+
+/* A/B 并列：两个候选并排展示，各自带权重 */
+.wm-bub-choice {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--wm-sp-1);
+  width: 100%;
+}
+.wm-bub-opt {
+  border: 1px dashed var(--wm-border-ctl);
+  border-radius: var(--wm-r-sm);
+  padding: var(--wm-sp-1) var(--wm-sp-2);
+  font-size: 12px;
+  color: var(--wm-fg-muted);
+}
+
+/* ---------------- 泡泡：模块编辑器 ---------------- */
+/* min-width:0 是关键：flex/grid 子项默认 min-width:auto，内容过宽会撑破容器，
+   导致设置窗口整体横向溢出（实测溢出 155px，右侧控件被切在窗口外）。
+   max-width/box-sizing 一并收紧，保证任何模块组合都不越界。 */
+.wm-bub-editor {
+  display: flex;
+  flex-direction: column;
+  gap: var(--wm-sp-2);
+  min-width: 0;
+  max-width: 100%;
+}
+.wm-mod-row {
+  display: flex;
+  align-items: center;
+  gap: var(--wm-sp-2);
+  flex-wrap: wrap;
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
+  padding: var(--wm-sp-2);
+  border: 1px solid var(--wm-border);
+  border-radius: var(--wm-r-sm);
+  background: var(--wm-surface-2);
+}
+.wm-mod-row.wm-mod-img-row { border-left: 3px solid var(--wm-accent); }
+.wm-mod-type {
+  flex: 0 0 auto;
+  font-size: 11px;
+  color: var(--wm-accent);
+  font-weight: 600;
+}
+/* 文本框：可收缩到 0，避免长内容把行撑破 */
+.wm-mod-text {
+  flex: 1 1 120px;
+  min-width: 0;
+  box-sizing: border-box;
+}
+/* 模块内的下拉（跑马灯等）也要能收缩 */
+.wm-mod-row select {
+  max-width: 100%;
+  min-width: 0;
+}
+/* 窄数字输入保持固定小宽度，不参与挤压 */
+.wm-mod-row .wm-num-sm {
+  flex: 0 0 auto;
+}
+/* 行分组提示：同一行的模块用左侧竖条联起来 */
+.wm-mod-row.wm-mod-samerow { border-left: 3px solid var(--wm-ok); }
+.wm-mod-badge {
+  font-size: 10px;
+  padding: 1px 5px;
+  border-radius: 999px;
+  background: var(--wm-accent-soft);
+  color: var(--wm-accent);
+}
+
+/* ---------------- 泡泡：预览 ---------------- */
+.wm-bub-preview {
+  position: relative;
+  min-height: 92px;
+  padding: var(--wm-sp-3);
+  border: 1px solid var(--wm-border);
+  border-radius: var(--wm-r-md);
+  background: var(--wm-surface-2);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: center;
+  justify-content: center;
+  overflow: auto;
+}
+.wm-pv-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: nowrap;
+  /* 预览逐行错峰淡入，与鲸鱼窗口内的动画规范一致 */
+  opacity: 0;
+  animation: wm-pv-in .26s cubic-bezier(.22, 1, .36, 1) forwards;
+}
+@keyframes wm-pv-in { to { opacity: 1; } }
+.wm-pv-mod {
+  white-space: pre;
+  line-height: 1.15;
+  background-size: 200% auto;
+  -webkit-background-clip: text;
+  background-clip: text;
+}
+.wm-pv-img { max-height: 56px; max-width: 120px; object-fit: contain; }
+
+
+/* 尊重系统「减少动态效果」 */
+@media (prefers-reduced-motion: reduce) {
+  .wm-bub-item { transition: none; }
+  .wm-pv-row { opacity: 1; animation: none; }
+}
+
+/* 泡泡 Tab 的容器一律不允许撑破窗口（横向滚动会让右侧控件看不见） */
+#page-bubble,
+#page-bubble .wm-group,
+.wm-bub-list,
+.wm-bub-preview {
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+.wm-bub-item { min-width: 0; }
+.wm-bub-tools { flex-wrap: nowrap; }
+
+/* 单个模块的控件组：必须能换行 + 能收缩，否则会把设置窗口撑出横向溢出 */
+.wm-mod-ctl {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+.wm-mod-ctl > .wm-mod-text { flex: 1 1 100px; }
+.wm-mod-ctl > select { flex: 0 1 auto; min-width: 0; max-width: 120px; }

@@ -7,203 +7,269 @@
   <link rel="stylesheet" href="menu.css">
 </head>
 <body>
-  <div class="wm-tabs">
-    <button class="wm-tab wm-tab-on" data-page="account">账户</button>
-    <button class="wm-tab" data-page="data">数据</button>
-    <button class="wm-tab" data-page="look">外观</button>
-    <button class="wm-tab" data-page="text">文案</button>
-    <button class="wm-tab" data-page="sound">音效</button>
-    <button class="wm-tab" data-page="media">图片</button>
-  </div>
+<div class="wm-app">
 
+  <!-- ===================== Tab 条（六等分分段控件，不换行） ===================== -->
+  <nav class="wm-tabs" role="tablist" aria-label="设置分类">
+    <button class="wm-tab wm-tab-on" id="tab-account" data-page="account" role="tab" aria-controls="page-account">密钥</button>
+    <button class="wm-tab" id="tab-data" data-page="data" role="tab" aria-controls="page-data">数据</button>
+    <button class="wm-tab" id="tab-look" data-page="look" role="tab" aria-controls="page-look">界面</button>
+    <button class="wm-tab" id="tab-text" data-page="text" role="tab" aria-controls="page-text">文案</button>
+    <button class="wm-tab" id="tab-sound" data-page="sound"   role="tab" aria-controls="page-sound">音效</button>
+    <button class="wm-tab" id="tab-bubble" data-page="bubble" role="tab" aria-controls="page-bubble">泡泡</button>
+    <button class="wm-tab" id="tab-media" data-page="media"   role="tab" aria-controls="page-media">形象</button>
+  </nav>
+
+  <!-- ===================== 滚动内容区 ===================== -->
   <div class="wm-body">
+
+    <!-- 窗口级错误出口（保存失败等）。没有 JS 填充时保持 hidden，不占位 -->
+    <div id="wm-banner" class="wm-banner" role="alert" hidden></div>
+
     <!-- ================= 账户 ================= -->
-    <section class="wm-page" id="page-account">
+    <section class="wm-page" id="page-account" role="tabpanel" aria-labelledby="tab-account">
       <div class="wm-group">
-        <div class="wm-group-title">密钥设置</div>
+        <h2 class="wm-group-title">API Key</h2>
+
         <div class="wm-field">
           <span class="wm-label">API Key</span>
           <div class="wm-inline">
-            <input id="wm-apikey" type="password" placeholder="sk-..." autocomplete="off">
-            <button id="wm-apikey-eye" class="wm-mini" title="显示或隐藏密钥">显示</button>
+            <input id="wm-apikey" type="password" placeholder="sk-…" autocomplete="off" spellcheck="false">
+            <button id="wm-apikey-eye" class="wm-mini" type="button" title="显示或隐藏密钥">显示</button>
           </div>
           <div id="wm-apikey-note" class="wm-note"></div>
         </div>
+
         <div class="wm-field">
           <span class="wm-label">平台令牌</span>
           <div class="wm-inline">
-            <input id="wm-token" type="password" placeholder="Bearer eyJ...（可选）" autocomplete="off">
-            <button id="wm-token-eye" class="wm-mini" title="显示或隐藏令牌">显示</button>
+            <input id="wm-token" type="password" placeholder="Bearer eyJ…（可选）" autocomplete="off" spellcheck="false">
+            <button id="wm-token-eye" class="wm-mini" type="button" title="显示或隐藏令牌">显示</button>
           </div>
-          <div class="wm-note">仅「实时·令牌」模式需要，不填则使用记账模式</div>
+          <div class="wm-note">仅「实时·令牌」统计方式需要；留空则使用记账。</div>
         </div>
-        <div class="wm-note wm-note-muted">从 api.deepseek.com 拉取余额，留空则无法显示；可用环境变量 DEEPSEEK_API_KEY 代替。</div>
+
+        <div class="wm-note wm-note-muted">余额自 api.deepseek.com 获取。留空则点击鲸鱼只会提示获取失败；也可改用环境变量 DEEPSEEK_API_KEY。</div>
       </div>
 
       <div class="wm-group">
-        <div class="wm-group-title">操作</div>
+        <h2 class="wm-group-title">维护</h2>
         <div class="wm-actions">
-          <button id="wm-refresh-now" class="wm-btn">立即刷新余额</button>
-          <button id="wm-config-open" class="wm-btn">打开配置文件</button>
+          <button id="wm-refresh-now" class="wm-btn" type="button">立即刷新</button>
+          <button id="wm-config-open" class="wm-btn" type="button">打开 config.json</button>
         </div>
-        <div class="wm-note wm-note-muted">配置文件 config.json 保存所有设置（含 API Key）。</div>
+        <div class="wm-note wm-note-muted">config.json 保存全部设置（含密钥），文件权限 600。</div>
       </div>
     </section>
 
     <!-- ================= 数据 ================= -->
-    <section class="wm-page" id="page-data" hidden>
+    <section class="wm-page" id="page-data" role="tabpanel" aria-labelledby="tab-data" hidden>
       <div class="wm-group">
-        <div class="wm-group-title">用量模式</div>
+        <h2 class="wm-group-title">用量统计</h2>
         <div class="wm-field">
+          <span class="wm-label">模式</span>
           <select id="wm-usage">
             <option value="ledger">记账模式（余额差值，免令牌）</option>
             <option value="token">实时·令牌（平台接口，峰谷定价）</option>
           </select>
-          <div class="wm-note">记账：本地记录余额差值累计今日用量；令牌：按峰谷单价换算，需平台令牌。</div>
+          <div class="wm-note wm-note-muted">记账：用余额差值估算，不需要平台令牌。令牌：按官方峰谷单价精确换算，需填平台令牌。</div>
         </div>
       </div>
 
       <div class="wm-group">
-        <div class="wm-group-title">数据设置</div>
-        <div class="wm-grid-2">
-          <div class="wm-field">
-            <span class="wm-label">自动刷新</span>
-            <div class="wm-field-row">
-              <input id="wm-refresh" type="number" min="5" max="3600" step="1">
-              <span class="wm-unit">秒</span>
-            </div>
+        <h2 class="wm-group-title">刷新与提醒</h2>
+
+        <div class="wm-field">
+          <span class="wm-label">自动刷新</span>
+          <div class="wm-field-row">
+            <input id="wm-refresh" type="number" min="5" max="3600" step="1">
+            <span class="wm-unit">秒</span>
           </div>
-          <div class="wm-field">
-            <span class="wm-label">低余额提醒</span>
-            <div class="wm-field-row">
-              <input id="wm-threshold" type="number" min="0" step="0.1">
-              <span class="wm-unit">元</span>
-            </div>
-            <div class="wm-note">低于该金额时弹通知</div>
-          </div>
-          <div class="wm-field">
-            <span class="wm-label">开机自启</span>
-            <input id="wm-autostart" type="checkbox" title="登录系统后自动启动小鲸鱼">
-          </div>
+          <div class="wm-note wm-note-muted">可填 5–3600 秒。点鲸鱼或按全局热键可随时手动刷新。</div>
         </div>
-        <div class="wm-note wm-note-muted">记账文件 usage.json（跨天自动归档最近 30 天）
-          <button id="wm-usage-open" class="wm-mini">打开</button>
+
+        <div class="wm-field">
+          <span class="wm-label">低余额提醒</span>
+          <div class="wm-field-row">
+            <input id="wm-threshold" type="number" min="0" step="0.1">
+            <span class="wm-unit">元</span>
+          </div>
+          <div class="wm-note wm-note-muted">余额低于该值时切换为预警文案与配色，并弹出系统通知（30 分钟内最多一次）。</div>
+        </div>
+
+        <div class="wm-field">
+          <span class="wm-label">开机自启</span>
+          <label class="wm-check" title="登录系统后自动启动小鲸鱼">
+            <input id="wm-autostart" type="checkbox">
+            <span class="wm-check-box" aria-hidden="true"></span>
+          </label>
+          <div class="wm-note wm-note-muted">登录系统后自动启动；在桌面环境的「启动应用程序」里可查看该条目。</div>
+        </div>
+
+        <div class="wm-field">
+          <span class="wm-label">记账数据</span>
+          <div class="wm-note wm-note-muted wm-note-flush">用量记在 usage.json，跨天自动归档，保留最近 30 天。
+            <button id="wm-usage-open" class="wm-mini" type="button">打开</button>
+          </div>
         </div>
       </div>
     </section>
 
-    <!-- ================= 外观 ================= -->
-    <section class="wm-page" id="page-look" hidden>
+    <!-- ================= 界面 ================= -->
+    <section class="wm-page" id="page-look" role="tabpanel" aria-labelledby="tab-look" hidden>
       <div class="wm-group">
-        <div class="wm-group-title">主题</div>
+        <h2 class="wm-group-title">主题</h2>
         <div class="wm-field">
-          <span class="wm-label">主题</span>
+          <span class="wm-label">配色</span>
           <select id="wm-theme">
             <option value="system">跟随系统</option>
             <option value="light">浅色</option>
             <option value="dark">深色</option>
           </select>
-          <div class="wm-note">仅影响设置窗口配色；鲸鱼本体始终为浅色。</div>
+          <div class="wm-note wm-note-muted">只影响本设置窗口。鲸鱼本体使用固定素材，不随主题变化。</div>
         </div>
       </div>
 
       <div class="wm-group">
-        <div class="wm-group-title">鲸鱼外观</div>
+        <h2 class="wm-group-title">体型与闲置</h2>
+
         <div class="wm-field">
-          <span class="wm-label">大小</span>
-          <input id="wm-scale" class="wm-range" type="range" min="0.6" max="2.5" step="0.1">
-          <span id="wm-scale-v" class="wm-val"></span>
-        </div>
-        <div class="wm-grid-2">
-          <div class="wm-field">
-            <span class="wm-label">气泡</span>
-            <input id="wm-bubble" type="checkbox" title="点击鲸鱼时弹出气泡">
+          <span class="wm-label">鲸鱼大小</span>
+          <div class="wm-field-row">
+            <input id="wm-scale" class="wm-range" type="range" min="0.6" max="2.5" step="0.1">
+            <span id="wm-scale-v" class="wm-val"></span>
           </div>
-          <div class="wm-field">
-            <span class="wm-label">闲置半透明</span>
-            <input id="wm-idlefade" type="checkbox" title="鼠标离开 3 秒后鲸鱼渐隐">
-          </div>
+          <div class="wm-note wm-note-muted">0.6× – 2.5×，缩放时保持右下角不动。</div>
         </div>
+
         <div class="wm-field">
-          <span class="wm-label">闲置不透明度</span>
-          <input id="wm-idle-opacity" class="wm-range" type="range" min="0.2" max="1" step="0.05">
-          <span id="wm-idle-opacity-v" class="wm-val"></span>
+          <span class="wm-label">点击弹气泡</span>
+          <label class="wm-check" title="点击鲸鱼时弹出气泡">
+            <input id="wm-bubble" type="checkbox">
+            <span class="wm-check-box" aria-hidden="true"></span>
+          </label>
         </div>
-        <div class="wm-note wm-note-muted">气泡：点击鲸鱼时弹出；闲置：鼠标离开 3 秒后渐隐。</div>
+
+        <div class="wm-field">
+          <span class="wm-label">闲置渐隐</span>
+          <label class="wm-check" title="鼠标离开后鲸鱼逐渐变淡">
+            <input id="wm-idlefade" type="checkbox">
+            <span class="wm-check-box" aria-hidden="true"></span>
+          </label>
+          <div class="wm-note wm-note-muted">鼠标离开 3 秒后开始变淡；拖动或悬浮时立即恢复。</div>
+        </div>
+
+        <div class="wm-field">
+          <span class="wm-label">渐隐后不透明度</span>
+          <div class="wm-field-row">
+            <input id="wm-idle-opacity" class="wm-range" type="range" min="0.2" max="1" step="0.05">
+            <span id="wm-idle-opacity-v" class="wm-val"></span>
+          </div>
+        </div>
       </div>
 
       <div class="wm-group">
-        <div class="wm-group-title">峰谷文案</div>
+        <h2 class="wm-group-title">菜单按钮</h2>
         <div class="wm-field">
-          <span class="wm-label">风格</span>
+          <span class="wm-label">隐藏菜单按钮</span>
+          <label class="wm-check" title="隐藏后：桌面端右键鲸鱼、触屏长按约 1.5 秒唤出菜单">
+            <input id="wm-menubtnhide" type="checkbox">
+            <span class="wm-check-box" aria-hidden="true"></span>
+            <span>隐藏鲸鱼右上角的三点按钮</span>
+          </label>
+          <div class="wm-note wm-note-muted">
+            隐藏后：桌面端<b>右键鲸鱼</b>、触屏<b>长按约 1.5 秒</b>唤出菜单（再右键可收起）。
+          </div>
+        </div>
+      </div>
+
+      <div class="wm-group">
+        <h2 class="wm-group-title">峰谷提示</h2>
+        <div class="wm-field">
+          <span class="wm-label">文案风格</span>
           <select id="wm-peak">
             <option value="default">默认（空闲时段 / 高峰时段）</option>
             <option value="liangwen">梁文峰谷</option>
             <option value="gugu">!?谷谷?!</option>
           </select>
-          <label class="wm-inline-label">
-            <input id="wm-peaktext" type="checkbox" title="气泡中显示当前时段提示">显示
+        </div>
+
+        <div class="wm-field">
+          <span class="wm-label">显示时段</span>
+          <label class="wm-check" title="气泡中显示当前时段提示">
+            <input id="wm-peaktext" type="checkbox">
+            <span class="wm-check-box" aria-hidden="true"></span>
+            <span>在气泡中显示</span>
           </label>
         </div>
+
         <div class="wm-grid-2">
           <div class="wm-field">
-            <span class="wm-label">空闲文案</span>
+            <span class="wm-label">空闲时段文案</span>
             <input id="wm-peak-off" type="text" maxlength="12" placeholder="留空用默认">
           </div>
           <div class="wm-field">
-            <span class="wm-label">高峰文案</span>
+            <span class="wm-label">高峰时段文案</span>
             <input id="wm-peak-on" type="text" maxlength="12" placeholder="留空用默认">
           </div>
         </div>
-        <div class="wm-note wm-note-muted">高峰：每日 9:00–12:00、14:00–18:00（北京时间）。</div>
+
+        <div class="wm-note wm-note-muted">高峰为每日 9:00–12:00 与 14:00–18:00（北京时间）；周末全天按低谷计价。</div>
       </div>
     </section>
 
     <!-- ================= 文案 ================= -->
-    <section class="wm-page" id="page-text" hidden>
+    <section class="wm-page" id="page-text" role="tabpanel" aria-labelledby="tab-text" hidden>
       <div class="wm-group">
-        <div class="wm-group-title">气泡文字</div>
+        <h2 class="wm-group-title">气泡文字</h2>
         <div class="wm-field">
           <span class="wm-label">余额充足</span>
-          <input id="wm-text-ok" type="text" maxlength="20" placeholder="限 20 字符">
-          <input id="wm-color-ok" type="color" title="文字颜色">
-          <button id="wm-color-ok-reset" class="wm-mini">默认</button>
+          <div class="wm-field-row">
+            <input id="wm-text-ok" type="text" maxlength="20" placeholder="限 20 字符">
+            <input id="wm-color-ok" type="color" title="余额充足时的文字颜色">
+            <button id="wm-color-ok-reset" class="wm-mini" type="button">默认</button>
+          </div>
         </div>
         <div class="wm-field">
           <span class="wm-label">余额预警</span>
-          <input id="wm-text-low" type="text" maxlength="20" placeholder="限 20 字符">
-          <input id="wm-color-low" type="color" title="文字颜色">
-          <button id="wm-color-low-reset" class="wm-mini">默认</button>
+          <div class="wm-field-row">
+            <input id="wm-text-low" type="text" maxlength="20" placeholder="限 20 字符">
+            <input id="wm-color-low" type="color" title="余额预警时的文字颜色">
+            <button id="wm-color-low-reset" class="wm-mini" type="button">默认</button>
+          </div>
         </div>
-        <div class="wm-note wm-note-muted">设置两种状态下的气泡文字与颜色，超长自动截断。</div>
+        <div class="wm-note wm-note-muted">气泡首行文字与颜色。文字超过 20 字会自动截断；颜色点右侧色块修改，「默认」恢复内置配色。</div>
       </div>
 
       <div class="wm-group">
-        <div class="wm-group-title">自动台词</div>
+        <h2 class="wm-group-title">随机台词</h2>
         <div class="wm-field">
           <span class="wm-label">台词间隔</span>
-          <input id="wm-bubble-interval" type="number" min="0" step="1">
-          <span class="wm-unit">秒（0 关闭）</span>
+          <div class="wm-field-row">
+            <input id="wm-bubble-interval" type="number" min="0" step="1">
+            <span class="wm-unit">秒</span>
+          </div>
+          <div class="wm-note wm-note-muted">每隔这段时间自动弹一句随机台词；填 0 关闭。</div>
         </div>
-        <div class="wm-note wm-note-muted">每隔该秒数自动弹出随机台词；填 0 关闭。</div>
+
         <div class="wm-actions">
-          <button id="wm-custom-reload" class="wm-btn">重新载入</button>
-          <button id="wm-custom-open" class="wm-btn">打开文件</button>
+          <button id="wm-custom-reload" class="wm-btn" type="button">重新载入</button>
+          <button id="wm-custom-open" class="wm-btn" type="button">打开文件</button>
         </div>
-        <div id="wm-custom-note" class="wm-note wm-note-muted">台词池在 lines.json，可增删改后「重新载入」。</div>
+        <div id="wm-custom-note" class="wm-note wm-note-muted">台词存在 lines.json，改完点「重新载入」即可生效，无需重启。</div>
       </div>
     </section>
 
     <!-- ================= 音效 ================= -->
-    <section class="wm-page" id="page-sound" hidden>
+    <section class="wm-page" id="page-sound" role="tabpanel" aria-labelledby="tab-sound" hidden>
       <div class="wm-group">
-        <div class="wm-group-title">音效设置</div>
+        <h2 class="wm-group-title">音效与音量</h2>
         <div class="wm-grid-2">
           <div class="wm-field">
-            <span class="wm-label">音效方案</span>
+            <span class="wm-label">方案</span>
             <select id="wm-sound">
-              <option value="duck">音效1</option>
-              <option value="fx1">音效2</option>
+              <option value="duck">音效 1</option>
+              <option value="fx1">音效 2</option>
             </select>
           </div>
           <div class="wm-field">
@@ -214,70 +280,174 @@
             </div>
           </div>
         </div>
+        <div class="wm-note wm-note-muted">音量拉到 0 即静音。点鲸鱼时会播放按压与松手两个音效。</div>
       </div>
 
       <div class="wm-group">
-        <div class="wm-group-title">自定义音效</div>
+        <h2 class="wm-group-title">自定义音源</h2>
         <div class="wm-field">
-          <span class="wm-label">按压</span>
+          <span class="wm-label">按压音效</span>
           <div class="wm-actions">
-            <button id="wm-press-pick" class="wm-btn">上传音源</button>
-            <button id="wm-press-reset" class="wm-btn">恢复默认</button>
+            <button id="wm-press-pick" class="wm-btn" type="button">选择文件</button>
+            <button id="wm-press-reset" class="wm-btn wm-btn-danger" type="button">恢复默认</button>
           </div>
         </div>
         <div class="wm-field">
-          <span class="wm-label">松手</span>
+          <span class="wm-label">松手音效</span>
           <div class="wm-actions">
-            <button id="wm-release-pick" class="wm-btn">上传音源</button>
-            <button id="wm-release-reset" class="wm-btn">恢复默认</button>
+            <button id="wm-release-pick" class="wm-btn" type="button">选择文件</button>
+            <button id="wm-release-reset" class="wm-btn wm-btn-danger" type="button">恢复默认</button>
           </div>
         </div>
-        <div id="wm-sound-note" class="wm-note wm-note-muted">上传的音源会复制到配置目录，优先于音效方案；音量调至 0 即静音。
-          <button id="wm-sounds-open" class="wm-mini">打开目录</button>
+
+        <!-- 「打开目录」原本嵌在 wm-sound-note 里，而 JS 会写 soundNote.textContent，
+             一上传音效就会把这个按钮抹掉 —— 移出到独立操作行修掉该隐患 -->
+        <div class="wm-actions">
+          <button id="wm-sounds-open" class="wm-btn" type="button">打开音效文件夹</button>
         </div>
+        <div id="wm-sound-note" class="wm-note wm-note-muted">自定义音源会复制到配置目录，并优先于上方方案。</div>
       </div>
     </section>
 
     <!-- ================= 图片 ================= -->
-    <section class="wm-page" id="page-media" hidden>
+    <!-- ================= 自定义泡泡（v0.3.5） ================= -->
+    <section class="wm-page" id="page-bubble" role="tabpanel" aria-labelledby="tab-bubble" hidden>
       <div class="wm-group">
-        <div class="wm-group-title">预警换图</div>
+        <h2 class="wm-group-title">点击序列</h2>
+        <div class="wm-note wm-note-muted">
+          按顺序排列「点击鲸鱼依次看到什么」。没有条目时使用内置的余额气泡与随机台词。
+        </div>
+
+        <div class="wm-field">
+          <span class="wm-label">点按角色推进队列</span>
+          <label class="wm-check" title="开启后点一下鲸鱼＝往后推进一项；关闭则点回第 1 项">
+            <input id="wm-tapadvance" type="checkbox">
+            <span class="wm-check-box" aria-hidden="true"></span>
+            <span>点一下往后翻一项（不回头）</span>
+          </label>
+          <div class="wm-note wm-note-muted">
+            关闭时：点鲸鱼回到第 1 项。开启时：走到最后一项再点则收起，下次从第 1 项开始。
+          </div>
+        </div>
+
+        <div class="wm-field">
+          <span class="wm-label">序列条目</span>
+          <div id="wm-bub-list" class="wm-bub-list"></div>
+          <div class="wm-actions">
+            <button id="wm-bub-add-normal" class="wm-btn" type="button">＋ 默认余额泡</button>
+            <button id="wm-bub-add-random" class="wm-btn" type="button">＋ 随机台词泡</button>
+            <button id="wm-bub-add-custom" class="wm-btn" type="button">＋ 自定义模块泡</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="wm-group">
+        <h2 class="wm-group-title">模块编辑</h2>
+        <div id="wm-bub-editor" class="wm-bub-editor">
+          <div class="wm-note wm-note-muted">在上面选中一个「自定义模块泡」后即可编辑。</div>
+        </div>
+      </div>
+
+      <div class="wm-group">
+        <h2 class="wm-group-title">预览</h2>
+        <div class="wm-bub-preview" id="wm-bub-preview">
+          <div class="wm-note wm-note-muted">预览会按当前序列显示第 1 项的效果。</div>
+        </div>
+        <div class="wm-actions">
+          <button id="wm-bub-save" class="wm-btn wm-btn-primary" type="button">保存泡泡配置</button>
+          <button id="wm-bub-reload" class="wm-btn" type="button">放弃修改</button>
+        </div>
+        <div id="wm-bub-status" class="wm-note"></div>
+      </div>
+    </section>
+
+
+    <section class="wm-page" id="page-media" role="tabpanel" aria-labelledby="tab-media" hidden>
+      <div class="wm-group">
+        <h2 class="wm-group-title">预警形象</h2>
         <div class="wm-field">
           <span class="wm-label">启用</span>
-          <input id="wm-alertimage" type="checkbox" title="余额低于阈值时自动切换为预警图">
+          <label class="wm-check" title="余额低于阈值时自动切换为预警图">
+            <input id="wm-alertimage" type="checkbox">
+            <span class="wm-check-box" aria-hidden="true"></span>
+            <span>余额低于阈值时换用预警图</span>
+          </label>
         </div>
         <div id="wm-alert-avail" class="wm-note"></div>
       </div>
 
       <div class="wm-group">
-        <div class="wm-group-title">图片设置</div>
+        <h2 class="wm-group-title">鲸鱼图片</h2>
         <div class="wm-field">
-          <span class="wm-label">主图</span>
+          <span class="wm-label">日常形象</span>
           <div class="wm-actions">
-            <button id="wm-main-pick" class="wm-btn">上传图片</button>
-            <button id="wm-main-reset" class="wm-btn">恢复默认</button>
+            <button id="wm-main-pick" class="wm-btn" type="button">选择图片</button>
+            <button id="wm-main-reset" class="wm-btn wm-btn-danger" type="button">恢复默认</button>
           </div>
           <div id="wm-main-note" class="wm-note wm-note-muted">默认 assets/DSniang1.png</div>
         </div>
+
         <div class="wm-field">
-          <span class="wm-label">预警图</span>
+          <span class="wm-label">预警形象</span>
           <div class="wm-actions">
-            <button id="wm-alert-pick" class="wm-btn">上传图片</button>
-            <button id="wm-alert-reset" class="wm-btn">恢复默认</button>
+            <button id="wm-alert-pick" class="wm-btn" type="button">选择图片</button>
+            <button id="wm-alert-reset" class="wm-btn wm-btn-danger" type="button">恢复默认</button>
           </div>
           <div id="wm-alert-note" class="wm-note wm-note-muted">与主图相互独立</div>
         </div>
+      </div>
+
+      <div class="wm-group">
+        <h2 class="wm-group-title">余额减少播报形象</h2>
         <div class="wm-field">
-          <span class="wm-label">图像目录</span>
-          <button id="wm-images-open" class="wm-btn">打开目录</button>
+          <span class="wm-label">启用</span>
+          <label class="wm-check" title="余额下降（观测到一次消费）时短暂切换表情">
+            <input id="wm-dropimage" type="checkbox">
+            <span class="wm-check-box" aria-hidden="true"></span>
+            <span>余额减少时切换表情</span>
+          </label>
+          <div class="wm-note wm-note-muted">
+            余额下降被观测到时切到「开心」表情并保持一小段时间，随后自动回落。
+            余额低于阈值时<b>预警表情优先</b>，不会互相覆盖。
+          </div>
+        </div>
+
+        <div class="wm-field">
+          <span class="wm-label">播报表情</span>
+          <div class="wm-actions">
+            <button id="wm-drop-pick" class="wm-btn" type="button">选择图片</button>
+            <button id="wm-drop-reset" class="wm-btn wm-btn-danger" type="button">恢复默认</button>
+          </div>
+          <div id="wm-drop-note" class="wm-note wm-note-muted">默认 assets/DSniang-happy.png</div>
+        </div>
+
+        <div class="wm-field">
+          <span class="wm-label">保持时长</span>
+          <div class="wm-field-row">
+            <input id="wm-drop-hold" class="wm-range" type="range" min="0" max="10000" step="100">
+            <span id="wm-drop-hold-v" class="wm-val"></span>
+          </div>
+          <div class="wm-note wm-note-muted">0 = 不切换（等同于关闭）。默认 2.6 秒。</div>
+        </div>
+      </div>
+
+      <div class="wm-group">
+        <div class="wm-actions">
+          <button id="wm-images-open" class="wm-btn" type="button">打开图片文件夹</button>
         </div>
       </div>
     </section>
 
-    <div class="wm-foot">
-      <button id="wm-done" class="wm-btn wm-btn-primary">完成</button>
-    </div>
-  </div>
-  <script src="menu.js"></script>
+  </div><!-- /.wm-body -->
+
+  <!-- ===================== 常驻底栏 ===================== -->
+  <footer class="wm-foot">
+    <span id="wm-status" class="wm-foot-status" data-state="idle">设置自动保存</span>
+    <button id="wm-done" class="wm-btn wm-btn-primary" type="button">完成</button>
+  </footer>
+
+</div><!-- /.wm-app -->
+<script src="menu-v035.js"></script>
+<script src="menu.js"></script>
 </body>
 </html>

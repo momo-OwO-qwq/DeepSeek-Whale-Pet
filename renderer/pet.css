@@ -202,3 +202,123 @@ html, body {
 .wp-menu-btn.wp-menu-btn-visible { opacity: 1; }
 .wp-menu-btn span { display: block; width: 14px; height: 2px; background: #fff; border-radius: 1px; }
 .wp-menu-btn:hover { background: #203170; }
+
+/* ==========================================================================
+ * v0.3.5 新功能：自定义泡泡模块渲染 + 隐藏菜单按钮
+ * 动画规范见 docs/design-v035.md（时长/缓动与上游保持一致）
+ * ========================================================================== */
+
+/* 隐藏菜单按钮（右键 / 长按约 1.5s 唤出） */
+.wp-menu-btn.wp-menu-btn-hidden { display: none; }
+
+/* ---- 自定义泡泡：模块容器 ---- */
+/* 铺满气泡画布；行纵向堆叠，逐行错峰进入 */
+.wp-mods {
+  position: absolute;
+  left: 44.25%;
+  top: 38%;
+  width: 72%;
+  transform: translate(-50%, -50%);
+  display: none;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: calc(var(--wp-u) * 10);
+  text-align: center;
+  color: #536ba9;
+  pointer-events: none;
+  z-index: 2;
+}
+/* 左吸附镜像时，文字块同步反向（与 .wp-text 同款处理） */
+.wp-root.wp-left .wp-mods { transform: translate(-50%, -50%) scaleX(-1); }
+
+.wp-modrow {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  gap: calc(var(--wp-u) * 10);
+  flex-wrap: nowrap;
+  max-width: 100%;
+  /* 逐行淡入 + 轻微上浮；延迟由 JS 按行下标注入 */
+  opacity: 0;
+  transform: translateY(calc(var(--wp-u) * 8));
+  animation: wp-mod-in .34s cubic-bezier(.22, 1, .36, 1) forwards;
+}
+@keyframes wp-mod-in {
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.wp-mod {
+  display: inline-block;
+  line-height: 1.15;
+  white-space: nowrap;
+  font-weight: 400;
+}
+/* 长句自动换行（上游 .dshwv-wrap，max-width 560u） */
+.wp-mod.wp-mod-wrap {
+  white-space: normal;
+  max-width: calc(var(--wp-u) * 560);
+}
+.wp-mod.wp-mod-link {
+  text-decoration: underline;
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+/* ---- 图片类模块：独占一行 ---- */
+.wp-mod-img {
+  display: block;
+  height: calc(var(--wp-u) * 120);
+  width: auto;
+  object-fit: contain;
+  pointer-events: none;
+  -webkit-user-drag: none;
+}
+
+/* ---- 跑马灯渐变文字（上游 dshwv-rgb-* 的等价实现）---- */
+/* background-clip:text 让渐变只作用于文字；background-size:200% + 位移动画 = 流动 */
+.wp-mod[class*="wp-rgb-"] {
+  background-size: 200% auto;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+  animation: wp-rgb-flow 2.6s linear infinite;
+}
+@keyframes wp-rgb-flow {
+  to { background-position: 200% center; }
+}
+
+/* 文字底色（铺在文字下方；与文字跑马灯互不占用） */
+.wp-mod[class*="wp-bgrgb-"] {
+  padding: calc(var(--wp-u) * 2) calc(var(--wp-u) * 14);
+  border-radius: calc(var(--wp-u) * 12);
+  background-size: 200% auto;
+  animation: wp-rgb-flow 3.2s linear infinite;
+}
+.wp-mod.wp-bgrgb-indigo { background-image: linear-gradient(90deg, #203170, #344c92, #4a66b4); }
+
+/* 渐变调色板（键名与 lib/bubble.js GRADIENT_KEYS 一一对应） */
+.wp-mod.wp-rgb-rainbow { background-image: linear-gradient(90deg, rgb(255,180,200), rgb(255,205,170), rgb(255,225,165), rgb(245,240,180), rgb(190,240,210), rgb(180,230,245), rgb(190,215,250), rgb(220,200,245), rgb(240,200,230), rgb(255,180,200)); }
+.wp-mod.wp-rgb-candy { background-image: linear-gradient(90deg, rgb(255,145,170), rgb(255,170,130), rgb(255,195,110), rgb(240,220,115), rgb(140,220,175), rgb(115,210,205), rgb(130,195,240), rgb(160,170,235), rgb(210,155,230), rgb(235,135,190), rgb(255,145,170)); }
+.wp-mod.wp-rgb-rouge { background-image: linear-gradient(90deg, rgb(140,25,45), rgb(175,35,60), rgb(120,20,55), rgb(160,40,75), rgb(190,55,80), rgb(130,30,65), rgb(140,25,45)); }
+.wp-mod.wp-rgb-bamboo { background-image: linear-gradient(90deg, rgb(70,180,85), rgb(95,200,105), rgb(55,165,70), rgb(110,215,120), rgb(80,190,95), rgb(60,172,78), rgb(70,180,85)); }
+.wp-mod.wp-rgb-aurora { background-image: linear-gradient(90deg, rgb(70,240,200), rgb(90,200,255), rgb(120,140,255), rgb(180,120,255), rgb(240,140,255), rgb(70,240,200)); }
+.wp-mod.wp-rgb-deepsea { background-image: linear-gradient(90deg, rgb(20,90,180), rgb(30,140,210), rgb(40,180,220), rgb(20,120,190), rgb(50,160,230), rgb(25,100,200), rgb(20,90,180)); }
+.wp-mod.wp-rgb-sunset { background-image: linear-gradient(90deg, rgb(255,180,80), rgb(255,130,90), rgb(255,90,110), rgb(220,90,150), rgb(160,90,190), rgb(255,180,80)); }
+.wp-mod.wp-rgb-forest { background-image: linear-gradient(90deg, rgb(30,100,60), rgb(60,140,80), rgb(90,180,90), rgb(140,200,80), rgb(180,210,90), rgb(30,100,60)); }
+.wp-mod.wp-rgb-champagne { background-image: linear-gradient(90deg, rgb(220,180,100), rgb(240,205,130), rgb(255,225,160), rgb(230,190,110), rgb(245,210,140), rgb(220,180,100)); }
+.wp-mod.wp-rgb-lavender { background-image: linear-gradient(90deg, rgb(180,150,255), rgb(200,170,255), rgb(230,180,240), rgb(255,190,220), rgb(240,160,200), rgb(180,150,255)); }
+.wp-mod.wp-rgb-mint { background-image: linear-gradient(90deg, rgb(120,230,180), rgb(150,240,200), rgb(170,240,230), rgb(140,220,240), rgb(120,200,220), rgb(120,230,180)); }
+.wp-mod.wp-rgb-lava { background-image: linear-gradient(90deg, rgb(255,60,40), rgb(255,110,30), rgb(255,170,40), rgb(255,210,70), rgb(255,140,50), rgb(255,60,40)); }
+.wp-mod.wp-rgb-galaxy { background-image: linear-gradient(90deg, rgb(40,30,90), rgb(70,50,130), rgb(110,70,170), rgb(160,90,190), rgb(220,120,180), rgb(40,30,90)); }
+.wp-mod.wp-rgb-ink { background-image: linear-gradient(90deg, rgb(20,20,20), rgb(80,80,80), rgb(140,140,140), rgb(200,200,200), rgb(250,250,250), rgb(250,250,250), rgb(200,200,200), rgb(140,140,140), rgb(80,80,80), rgb(20,20,20)); }
+.wp-mod.wp-rgb-indigo { background-image: linear-gradient(90deg, rgb(32,49,112), rgb(52,76,146), rgb(74,102,180), rgb(100,126,210), rgb(130,132,224), rgb(130,132,224), rgb(100,126,210), rgb(74,102,180), rgb(52,76,146), rgb(32,49,112)); }
+
+/* 尊重系统「减少动态效果」：关闭跑马灯流动与逐行进入，保留静态可读性 */
+@media (prefers-reduced-motion: reduce) {
+  .wp-mod[class*="wp-rgb-"],
+  .wp-mod[class*="wp-bgrgb-"] { animation: none; }
+  .wp-modrow { opacity: 1; transform: none; animation: none; }
+}

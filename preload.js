@@ -40,10 +40,31 @@ contextBridge.exposeInMainWorld('whaleAPI', {
   // 设置窗口
   openMenu: () => ipcRenderer.send('menu:open'),
   closeMenu: () => ipcRenderer.send('menu:close'),
+  // ---- v0.3.5 新功能：自定义泡泡 / 吸附翻转 / 音效库 / 角色库 / 泡泡图库 ----
+  getBubble: () => ipcRenderer.invoke('bubble:get'),
+  setBubble: (cfg) => ipcRenderer.invoke('bubble:set', cfg),
+  getAudio: () => ipcRenderer.invoke('audio:get'),
+  uploadFragment: (name, audio) => ipcRenderer.invoke('audio:upload-fragment', { name, audio }),
+  saveAudioGroup: (group) => ipcRenderer.invoke('audio:save-group', group),
+  deleteAudioGroup: (id) => ipcRenderer.invoke('audio:delete-group', { id }),
+  deleteFragment: (id) => ipcRenderer.invoke('audio:delete-fragment', { id }),
+  pinAudioGroup: (id, pinned) => ipcRenderer.invoke('audio:pin-group', { id, pinned }),
+  readAudio: (id) => ipcRenderer.invoke('audio:read', { id }),
+  setTaskEnd: (patch) => ipcRenderer.invoke('taskend:set', patch),
+  listRoles: () => ipcRenderer.invoke('role:list'),
+  uploadRole: (name, image, format) => ipcRenderer.invoke('role:upload', { name, image, format }),
+  pinRole: (id, pinned) => ipcRenderer.invoke('role:pin', { id, pinned }),
+  deleteRole: (id) => ipcRenderer.invoke('role:delete', { id }),
+  readRole: (id) => ipcRenderer.invoke('role:read', { id }),
+  listBubbleImgs: () => ipcRenderer.invoke('bimg:list'),
+  uploadBubbleImg: (name, image) => ipcRenderer.invoke('bimg:upload', { name, image }),
+  deleteBubbleImg: (id) => ipcRenderer.invoke('bimg:delete', { id }),
+  readBubbleImg: (id) => ipcRenderer.invoke('bimg:read', { id }),
   // 用系统默认程序打开文件/目录/URL
   openPath: (path) => ipcRenderer.invoke('shell:open-path', { path }),
   // 事件
   onConfigChanged: (cb) => ipcRenderer.on('config:changed', (_e, cfg) => cb(cfg)),
   onCustomChanged: (cb) => ipcRenderer.on('custom:changed', (_e, data) => cb(data)),
+  onBubbleChanged: (cb) => ipcRenderer.on('bubble:changed', (_e, data) => cb(data)),
   onRefresh: (cb) => ipcRenderer.on('whale:refresh', () => cb()),
 })

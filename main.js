@@ -12,11 +12,16 @@ const { app, BrowserWindow, Tray, Menu, globalShortcut, ipcMain, screen, Notific
 const configMod = require('./lib/config')
 const balanceMod = require('./lib/balance')
 const linesMod = require('./lib/lines')
+const bubbleMod = require('./lib/bubble')
+const audioMod = require('./lib/audio')
+const storeMod = require('./lib/store')
 
 const IS_SMOKE = process.argv.includes('--smoke-test')
 const BASE_PX = 320
-const MENU_W = 520
-const MENU_H = 700
+// 设置窗口尺寸：v0.3.5 新增「泡泡」Tab（逐模块编辑，控件密集）后 520 偏窄，
+// 模块行会被迫折成很多行。加宽到 600 让一行能放下「文本 + 字号 + B/I/U + 颜色 + 渐变」。
+const MENU_W = 600
+const MENU_H = 720
 const LOW_NOTIFY_THROTTLE_MS = 30 * 60 * 1000
 
 // ---- Wayland：强制走 XWayland，否则 setPosition / 拖拽不可用 --------------
@@ -352,36 +357,35 @@ function checkLowBalance(payload) {
 // ================================ IPC =====================================
 function hasOwn(o, k) { return Object.prototype.hasOwnProperty.call(o || {}, k) }
 
-function sanitizeRects(rects) {
-  if (!Array.isArray(rects)) return []
-  const out = []
-  for (const r of rects) {
-    if (!r || typeof r !== 'object') continue
-    const x = Number(r.x)
-    const y = Number(r.y)
-    const w = Number(r.w)
-    const h = Number(r.h)
-    if (isFinite(x) && isFinite(y) && isFinite(w) && isFinite(h) && w > 0 && h > 0) {
-      out.push({ x, y, w, h })
-    }
-  }
-  return out
-}
+// 拖拽/定位几何：纯函数模块（可单测），见 lib/geometry.js
+const geometry = require('./lib/geometry')
 
 // 渲染进程上报的「可见鲸鱼在窗口内的矩形」（CSS px = DIP，已含镜像与 alpha 收缩）
 // 拖拽钳制以它为准 → 哦鲸鲸本体四条边都能贴到屏幕边
-// 缺失/异常时回退：图形锚定窗口右下 59.45%（上/左留白 40.55%）
-function fishRectOf(msg, b) {
-  const f = msg && msg.fish
-  const W = b.width
-  const H = b.height
-  if (f && [f.x, f.y, f.w, f.h].every((v) => isFinite(Number(v))) && Number(f.w) > 0 && Number(f.h) > 0) {
-    const x = Math.min(Math.max(Number(f.x), 0), W)
-    const y = Math.min(Math.max(Number(f.y), 0), H)
-    return { x, y, w: Math.min(Number(f.w), W - x), h: Math.min(Number(f.h), H - y) }
+//
+// 归一化存储（修复「由大变小后空气墙」）：
+// drag:start 只发生一次，而缩放大小时窗口会变 —— 若把 px 快照冻结在 dragState 里，
+// 缩小后钳制仍按旧尺寸（640）算，右侧会多出「窗口差」那么宽的死区，拖不过去。
+// 因此把 fish 存成**相对窗口尺寸的比例**，每次钳制时按当前窗口实时还原。
+function fishRectNormOf(msg, b) {
+  return geometry.fishNormOf(msg && msg.fish, b)
+}
+
+// 按当前窗口尺寸把归一化 fish 还原成 px（并夹在窗口内）
+function fishRectFromNorm(norm, b) {
+  return geometry.fishFromNorm(norm, b)
+}
+
+// 当前生效的 fish / geom：始终按**此刻**的窗口几何重算，不用 drag:start 的快照
+function currentDragGeom() {
+  const b = petWin.getBounds()
+  let cb = petWin.getContentBounds()
+  if (!cb || !(cb.width > 0) || !(cb.height > 0)) cb = b
+  return {
+    b,
+    geom: { w: cb.width, h: cb.height, insetX: cb.x - b.x, insetY: cb.y - b.y },
+    fish: fishRectFromNorm(dragState && dragState.fishNorm, b),
   }
-  const head = Math.round(H * 0.4055)
-  return { x: head, y: head, w: Math.max(1, W - head), h: Math.max(1, H - head) }
 }
 
 async function getWorkAreaForPet() {
@@ -445,25 +449,56 @@ function registerIpc() {
     }
   })
 
-  // ---------- 透明像素点击穿透（window.setShape 只保留鲸鱼/气泡/按钮区域）----------
-  ipcMain.on('pet:shape', (e, msg) => {
-    if (!petWin || petWin.isDestroyed()) return
-    const rects = sanitizeRects(msg && msg.rects)
-    // 空 shape 在 Windows 上会把整个窗口从合成中剔除（鲸鱼「消失」且不可点）。
-    // 守卫：渲染进程偶发算出空矩形（如图片换载瞬间）时保留上一次 shape。
-    if (rects.length === 0) return
-    try { petWin.setShape(rects) } catch (err) { /* 个别环境不支持 shape，忽略 */ }
+  // ---------- 不做窗口裁剪（按用户要求移除 setShape）----------
+  // 历史：曾用 win.setShape() 把窗口裁剪成「鲸鱼/气泡/按钮」区域，让其余透明处
+  // 点击穿透。实际带来三个问题：
+  //   1) 气泡会被一起裁掉（气泡展开时超出鲸鱼矩形就被切）；
+  //   2) shape 只认 {x,y,width,height}，早期传 w/h 导致**每次**都静默失败，
+  //      窗口仍是完整矩形 —— 「透明部分有遮挡」与「时好时坏」都源于此；
+  //   3) 缩放后若 shape 未及时跟上，右下角那片不在裁剪区内 → 那里点不到、
+  //      拖不动（表现为「调整大小后拖不到右下角，重启才好」）。
+  // 现在保持窗口为完整矩形：透明区域不穿透（会挡住下方点击），但交互稳定、
+  // 气泡完整、缩放后行为一致。渲染进程仍会上报 shape，这里直接忽略以保持
+  // 协议兼容（未来若要恢复穿透可在此接回 setShape）。
+
+  // 缩放窗口。关键：**等真实尺寸落地后再返回**。
+  //
+  // 历史坑：早期直接返回「请求的尺寸」，因为 Linux 透明置顶窗口缩小后 setSize 的
+  // getBounds 会短暂返回旧值。但那样渲染进程会立刻把 state.winW/CSS 按新尺寸算，
+  // 而真实窗口还是旧尺寸 —— 两者不同源，紧接着的钳制/命中测试就按一个不存在的
+  // 尺寸计算，于是出现「由大变小时右侧/底部拖不过去」的空气墙。
+  //
+  // 现在改为轮询等待真正生效（最多 ~120ms，通常 1 帧内就完成），拿到真实值返回；
+  // 超时则回退到请求值（并在结果里标记 settled:false 供诊断）。
+  const waitForSize = (win, w, h) => new Promise((resolve) => {
+    const deadline = Date.now() + 120
+    const tick = () => {
+      if (!win || win.isDestroyed()) return resolve({ applied: false })
+      let cb = null
+      try { cb = win.getContentBounds() } catch (err) { cb = null }
+      const cw = cb && cb.width > 0 ? cb.width : 0
+      const ch = cb && cb.height > 0 ? cb.height : 0
+      if (cw === w && ch === h) return resolve({ applied: true })
+      if (Date.now() >= deadline) return resolve({ applied: false })
+      setTimeout(tick, 12)
+    }
+    setTimeout(tick, 0)
   })
 
-  ipcMain.handle('window:resize', (e, msg) => {
-    if (!petWin || petWin.isDestroyed()) return { x: 0, y: 0, width: 0, height: 0 }
+  ipcMain.handle('window:resize', async (e, msg) => {
+    if (!petWin || petWin.isDestroyed()) return { x: 0, y: 0, width: 0, height: 0, settled: false }
     const w = Math.max(80, Math.round(Number(msg && msg.w) || BASE_PX))
     const h = Math.max(80, Math.round(Number(msg && msg.h) || BASE_PX))
     petWin.setSize(w, h)
     pinPetWindow(petWin)
-    // 直接返回请求的尺寸，不使用 setSize 后的即时 getBounds：
-    // Linux 透明置顶窗口缩小后 getBounds 可能延迟反映旧尺寸（「只能变大不能变小」）
-    return { x: petWin.getBounds().x, y: petWin.getBounds().y, width: w, height: h }
+    const { applied } = await waitForSize(petWin, w, h)
+    const b = petWin.getBounds()
+    let cb = null
+    try { cb = petWin.getContentBounds() } catch (err) { cb = null }
+    // 真实内容区尺寸（钳制与 CSS 都以它为准）；未生效时退回请求值
+    const realW = applied && cb && cb.width > 0 ? cb.width : w
+    const realH = applied && cb && cb.height > 0 ? cb.height : h
+    return { x: b.x, y: b.y, width: realW, height: realH, settled: applied }
   })
 
   ipcMain.handle('window:set-pos', (e, msg) => {
@@ -506,8 +541,9 @@ function registerIpc() {
       anchorX: hasAbs ? sx - b.x : (Number(msg && msg.offsetX) || 0),
       anchorY: hasAbs ? sy - b.y : (Number(msg && msg.offsetY) || 0),
       hasAbs,
-      // 可见图形矩形（窗口内 CSS px，含镜像）：四边贴边的钳制依据
-      fish: fishRectOf(msg, b),
+      // 可见图形矩形：存**归一化比例**（不是 px 快照），钳制时按当前窗口尺寸还原。
+      // 这样拖拽途中若发生缩放/窗口尺寸变化，钳制跟着变，不会留下空气墙。
+      fishNorm: fishRectNormOf(msg, b),
       // 主进程光标空间的抓取偏移（owner='cursor' 时使用）：两个操作数同取自主进程，
       // 同空间相减 → 窗口跟手 1:1，且四边钳制（同为 DIP）必然可达
       cursorAnchorX: cursor0.x - b.x,
@@ -552,10 +588,14 @@ function registerIpc() {
     const d = screen.getDisplayMatching(b)
     // 钳制以「可见图形矩形」为准：左/上允许把图片留白推出屏幕（哦鲸鲸本体贴边），
     // 右/下 = 图形右/下边缘贴到屏幕右/下边（底部留出任务栏）。
-    const f = dragState.fish
-    const g = dragState.geom // 内容区尺寸 + 相对窗口框的偏移（钳制必须按内容区几何算）
-    const nx = Math.round(Math.min(Math.max(cursor.x - dragState.cursorAnchorX, d.bounds.x - (g.insetX + f.x)), Math.max(d.bounds.x, d.bounds.x + d.bounds.width - (g.insetX + f.x + f.w))))
-    const ny = Math.round(Math.min(Math.max(cursor.y - dragState.cursorAnchorY, d.bounds.y - (g.insetY + f.y)), Math.max(d.workArea.y, d.workArea.y + d.workArea.height - (g.insetY + f.y + f.h))))
+    // 注意：f/g 取**当前**窗口几何（不是 drag:start 的快照），否则拖拽途中缩放过
+    // 窗口尺寸后仍按旧尺寸钳制，会在右/下留下「空气墙」。
+    const live = currentDragGeom()
+    const f = live.fish
+    const g = live.geom // 内容区尺寸 + 相对窗口框的偏移（钳制必须按内容区几何算）
+    const pos = geometry.clampWindow(cursor.x - dragState.cursorAnchorX, cursor.y - dragState.cursorAnchorY, f, g, d.bounds, d.workArea)
+    const nx = pos.x
+    const ny = pos.y
     if (nx !== b.x || ny !== b.y) petWin.setPosition(nx, ny)
     dragState.lastPos = { x: nx, y: ny }
     dragState.lastAppliedDx = nx - b.x
@@ -572,12 +612,14 @@ function registerIpc() {
     const wa = d.workArea // 底部仍按 workArea 防止被任务栏/面板遮挡
     // 哦鲸鲸图形锚定在窗口右下、上/左留空 40.55%（CSS: .wp-img 59.45%/bottom）。
     // 允许窗口上/左移出屏幕至多 40.55% 窗口高，让哦鲸鲸本体能触到屏幕上缘/左缘。
-    // 钳制以「可见图形矩形」为准（渲染进程随 drag:start 上报，含镜像与透明留白），
-    // 使哦鲸鲸本体四条边都能贴到屏幕边；缺失时回退到 40.55% 留白估算。
-    const f = dragState.fish
-    const g = dragState.geom // 内容区几何（同上：哦鲸鲸按页面坐标绘制，钳制按页面几何算）
-    const clampX = (v) => Math.round(Math.min(Math.max(v, bd.x - (g.insetX + f.x)), Math.max(bd.x, bd.x + bd.width - (g.insetX + f.x + f.w))))
-    const clampY = (v) => Math.round(Math.min(Math.max(v, bd.y - (g.insetY + f.y)), Math.max(wa.y, wa.y + wa.height - (g.insetY + f.y + f.h))))
+    // 钳制以「可见图形矩形」为准（含镜像与透明留白），使哦鲸鲸本体四条边都能贴到
+    // 屏幕边；缺失时回退到 40.55% 留白估算。
+    // f/g 取当前窗口几何（不是 drag:start 快照）—— 避免拖拽途中缩放后留下空气墙。
+    const live = currentDragGeom()
+    const f = live.fish
+    const g = live.geom // 内容区几何（同上：哦鲸鲸按页面坐标绘制，钳制按页面几何算）
+    const clampX = (v) => geometry.clampWindow(v, 0, f, g, bd, wa).x
+    const clampY = (v) => geometry.clampWindow(0, v, f, g, bd, wa).y
     const sx = Number(msg && msg.screenX)
     const sy = Number(msg && msg.screenY)
     const absUsable = isFinite(sx) && isFinite(sy) && (sx !== 0 || sy !== 0)
@@ -665,16 +707,18 @@ function registerIpc() {
   })
 
   // ---------- 主图 / 预警图上传（复制到配置目录，与源文件解耦）----------
+  // 三类形象各自的「恢复默认」内置素材（随包 610×610 透明 cut-out）
   function imagePatchFor(kind) {
-    // 预警图默认取 assets/DSniang03.png（无此素材 → getEffective 置空 = 无默认预警图）
-    return kind === 'alert' ? { alertImgPath: 'assets/DSniang03.png' } : { mainImgPath: 'assets/DSniang1.png' }
+    if (kind === 'alert') return { alertImgPath: 'assets/DSniang-sad.png' }
+    if (kind === 'drop') return { dropImgPath: 'assets/DSniang-happy.png' }
+    return { mainImgPath: 'assets/DSniang1.png' }
   }
 
   ipcMain.handle('image:pick', async (e, msg) => {
-    const kind = msg && msg.kind === 'alert' ? 'alert' : 'main'
+    const kind = msg && msg.kind === 'alert' ? 'alert' : (msg && msg.kind === 'drop' ? 'drop' : 'main')
     try {
       const res = await dialog.showOpenDialog(menuWin && !menuWin.isDestroyed() ? menuWin : undefined, {
-        title: kind === 'alert' ? '选择预警图片' : '选择主图',
+        title: kind === 'alert' ? '选择预警图片' : (kind === 'drop' ? '选择余额减少播报图片' : '选择主图'),
         filters: [{ name: '图片', extensions: ['png', 'jpg', 'jpeg', 'gif', 'webp'] }],
         properties: ['openFile'],
       })
@@ -683,9 +727,10 @@ function registerIpc() {
       const imagesDir = path.join(configMod.CONFIG_DIR, 'images')
       fs.mkdirSync(imagesDir, { recursive: true, mode: 0o700 })
       const ext = (path.extname(src) || '.png').toLowerCase()
-      const dest = path.join(imagesDir, (kind === 'alert' ? 'alert' : 'main') + ext)
+      const dest = path.join(imagesDir, kind + ext)
       fs.copyFileSync(src, dest)
-      const patch = kind === 'alert' ? { alertImgPath: dest } : { mainImgPath: dest }
+      const patch = kind === 'alert' ? { alertImgPath: dest }
+        : (kind === 'drop' ? { dropImgPath: dest } : { mainImgPath: dest })
       configMod.save(patch)
       broadcast('config:changed', configMod.getEffective())
       return { ok: true, path: dest }
@@ -695,7 +740,7 @@ function registerIpc() {
   })
 
   ipcMain.handle('image:reset', (e, msg) => {
-    const kind = msg && msg.kind === 'alert' ? 'alert' : 'main'
+    const kind = msg && msg.kind === 'alert' ? 'alert' : (msg && msg.kind === 'drop' ? 'drop' : 'main')
     configMod.save(imagePatchFor(kind))
     broadcast('config:changed', configMod.getEffective())
     return { ok: true }
@@ -763,6 +808,90 @@ function registerIpc() {
   ipcMain.on('menu:open', () => openMenu())
   ipcMain.on('menu:close', () => {
     if (menuWin && !menuWin.isDestroyed()) menuWin.hide()
+  })
+
+  // ---------- v0.3.5 新功能 IPC ----------
+  // 自定义泡泡配置：GET 返回消毒后的配置 + 渲染层需要的常量（避免两边硬编码漂移）
+  ipcMain.handle('bubble:get', () => {
+    return {
+      ok: true,
+      config: storeMod.readBubble(),
+      limits: { modMax: bubbleMod.MOD_MAX, rowMax: bubbleMod.ROW_MAX, imgMax: bubbleMod.IMG_MAX },
+      gradients: bubbleMod.GRADIENT_KEYS,
+      placeholders: bubbleMod.PLACEHOLDERS,
+    }
+  })
+
+  ipcMain.handle('bubble:set', (e, cfg) => {
+    const saved = storeMod.writeBubble(cfg)
+    if (!saved) return { ok: false, error: 'write failed' }
+    // tapAdvance 镜像进 config，便于渲染层在 config:changed 时立即拿到
+    configMod.save({ bubbleTapAdvance: saved.tapAdvance })
+    broadcast('bubble:changed', { ok: true, config: saved })
+    return { ok: true, config: saved }
+  })
+
+  // 音效库：片段 + 自定义音效组 + 任务结束音
+  ipcMain.handle('audio:get', () => storeMod.audioPayload())
+
+  ipcMain.handle('audio:upload-fragment', (e, msg) => {
+    const m = msg && typeof msg === 'object' ? msg : {}
+    const res = storeMod.uploadFragment(m.name, m.audio)
+    if (!res.ok) return res
+    res.fragments = storeMod.audioPayload().fragments
+    return res
+  })
+
+  ipcMain.handle('audio:save-group', (e, msg) => storeMod.saveGroup(msg))
+  ipcMain.handle('audio:delete-group', (e, msg) => storeMod.deleteGroup(String((msg && msg.id) || '')))
+  ipcMain.handle('audio:delete-fragment', (e, msg) => storeMod.deleteFragment(String((msg && msg.id) || '')))
+  ipcMain.handle('audio:pin-group', (e, msg) => storeMod.pinGroup(String((msg && msg.id) || ''), !!(msg && msg.pinned)))
+
+  // 读取音频片段字节（渲染进程用 Web Audio 播放；不走 file:// 以便统一 MIME）
+  ipcMain.handle('audio:read', (e, msg) => {
+    const id = String((msg && msg.id) || '')
+    const got = storeMod.loadFragment(id)
+    if (!got) return { ok: false, error: 'audio fragment unavailable' }
+    return { ok: true, mime: got.mime, base64: got.bytes.toString('base64') }
+  })
+
+  // 任务结束音设置（存在 config 里，与上游一致：默认关闭、默认选中内置经验球）
+  ipcMain.handle('taskend:set', (e, patch) => {
+    const cur = configMod.getEffective()
+    const next = audioMod.sanitizeTaskEnd(Object.assign({}, cur.taskEnd, patch || {}))
+    const saved = configMod.save({ taskEnd: next })
+    if (!saved) return { ok: false, error: 'write failed' }
+    broadcast('config:changed', saved)
+    return { ok: true, taskEnd: saved.taskEnd }
+  })
+
+  // 角色库
+  ipcMain.handle('role:list', () => storeMod.rolesPayload())
+  ipcMain.handle('role:upload', (e, msg) => {
+    const m = msg && typeof msg === 'object' ? msg : {}
+    return storeMod.uploadRole(m.name, m.image, m.format)
+  })
+  ipcMain.handle('role:pin', (e, msg) => storeMod.pinRole(String((msg && msg.id) || ''), !!(msg && msg.pinned)))
+  ipcMain.handle('role:delete', (e, msg) => storeMod.deleteRole(String((msg && msg.id) || '')))
+  ipcMain.handle('role:read', (e, msg) => {
+    const id = String((msg && msg.id) || 'default')
+    const got = storeMod.loadRoleImage(id)
+    if (!got) return { ok: false, error: 'role image unavailable' }
+    return { ok: true, mime: got.mime, base64: got.bytes.toString('base64') }
+  })
+
+  // 泡泡图库
+  ipcMain.handle('bimg:list', () => storeMod.bubbleImgsPayload())
+  ipcMain.handle('bimg:upload', (e, msg) => {
+    const m = msg && typeof msg === 'object' ? msg : {}
+    return storeMod.uploadBubbleImg(m.name, m.image)
+  })
+  ipcMain.handle('bimg:delete', (e, msg) => storeMod.deleteBubbleImg(String((msg && msg.id) || '')))
+  ipcMain.handle('bimg:read', (e, msg) => {
+    const id = String((msg && msg.id) || '')
+    const got = storeMod.loadBubbleImg(id)
+    if (!got) return { ok: false, error: 'bubble image unavailable' }
+    return { ok: true, mime: got.mime, base64: got.bytes.toString('base64') }
   })
 
   // ---------- 用系统默认程序打开文件/目录/URL（设置里的「打开」按钮）----------
@@ -892,13 +1021,13 @@ async function runSmoke() {
     const c1 = petWin.getPosition()
     results.drag.mvLog = await withTimeout(petWin.webContents.executeJavaScript('window.__mvLog.slice(0,40)', true), 2000, 'timeout')
     const basicTrace = dragTrace.slice(traceStart)
-    const preSnap = basicTrace.slice(0, -1) // 最后一笔是松手吸附后的位置，不计入轨迹
+    const preSettle = basicTrace.slice(0, -1) // 最后一笔是松手定位后的位置，不计入轨迹
     results.drag.basic = {
       before,
       after: { x: c1[0], y: c1[1] },
       moved: Math.hypot(c1[0] - before[0], c1[1] - before[1]) > 20,
-      noTwitch: monotonic(preSnap, 'x', before[0]) && monotonic(preSnap, 'y', before[1]),
-      // 净位移 = 注入的 movement 总和（已取消贴边吸附，落点即指针位移终点）
+      noTwitch: monotonic(preSettle, 'x', before[0]) && monotonic(preSettle, 'y', before[1]),
+      // 净位移 = 注入的 movement 总和（自由拖拽无吸附，落点即指针位移终点）
       exact: Math.abs(c1[0] - (before[0] - 96)) <= 2 && Math.abs(c1[1] - (before[1] - 160)) <= 2,
     }
 

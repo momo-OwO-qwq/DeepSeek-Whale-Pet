@@ -141,7 +141,11 @@
   var threshold = 10
   var alertImage = false
   var mainImgPath = 'assets/DSniang1.png'
-  var alertImgPath = 'assets/DSniang03.png'
+  var alertImgPath = 'assets/DSniang-sad.png'
+  // 快速减少播报表情（随包「开心」素材）；'' = 不切换
+  var dropImgPath = 'assets/DSniang-happy.png'
+  var dropImage = true
+  var dropImgHoldMs = 2600
   var bubbleTextOk = 'DeepSeek 余额'
   var bubbleTextLow = '余额预警'
   var textColorOk = ''
@@ -151,6 +155,10 @@
   var pressSound = ''
   var releaseSound = ''
   var customGroups = null
+  // v0.3.5：隐藏菜单按钮（右键/长按唤出）
+  var menuBtnHide = false
+  var audioGroup = 'duck'
+  var roleId = 'default'
   var currentImgSrc = ''
   var lastPointerMoveAt = Date.now()
   var flipped = false
@@ -305,11 +313,279 @@
     }, 190)
   }
 
+  // ==========================================================================
+  // 自定义泡泡渲染引擎（移植自上游 bubbleRenderModules / blockOf，v0.3.5）
+  //
+  // 上游把「一个泡泡 = 若干行，每行若干模块」渲染成绝对定位的绝对块。桌宠沿用
+  // 同一套模型与视觉参数（字号以 --wp-u = base/1026 联动），但简化为一个
+  // 独立的 #wp-mods 容器：启用自定义泡泡时隐藏内置三行文字，改由模块渲染。
+  //
+  // 约束（与 lib/bubble.js 保持一致，超限由上游已是「编辑器保证 + 渲染层防御」）：
+  //   · 每行最多 6 个模块、最多 6 行、图片类模块独占一行且一个泡泡只能一个
+  // ==========================================================================
+  var modsBox = document.createElement('div')
+  modsBox.className = 'wp-mods'
+  bubbleBox.appendChild(modsBox)
+  var modsEls = []          // 已渲染的模块元素（用于清理与动画）
+  var customBubble = null   // 自定义泡泡配置（{v,items,lib,tapAdvance}）
+  var customBubbleLimits = { modMax: 6, rowMax: 6, imgMax: 1 }
+  var lastLineByMod = {}    // 随机语句/随机图片的「不连续重复」记忆（按模块键）
+  var bubbleSeqIdx = 0      // 下一条待显示的序号（上游语义：显示时自增）
+  var bubbleRoundOn = false // 是否处于「手动点击轮」
+
+  // 字号：档位 → u 值（上游 bubbleModuleFontU），--wp-u 由 CSS 联动
+  function moduleFontU(level) {
+    var n = Number(level)
+    if (!isFinite(n)) n = 6
+    n = clamp(Math.round(n), 1, 50)
+    return Math.round(40 + (n - 1) * 200 / 49)
+  }
+
+  // 当前余额/今日已用的展示文本（模块内容占位符取值）
+  function moduleValues() {
+    var amountText = shown !== null ? shown : (state.balance !== null ? state.balance : null)
+    var bal = amountText === null ? '…' : fmt(amountText, state.currency)
+    var today = state.todayUsage === null || state.todayUsage === undefined ? '--' : fmt(state.todayUsage, state.currency)
+    var peakOn = peakLabelOn()
+    return {
+      balance: bal,
+      today: today,
+      status: peakOn ? '高峰时段' : '空闲时段',
+      countdown: peakCountdownText(),
+      cost: '--',
+      quota: '--', quota_used: '--', quota_left: '--', quota_total: '--', quota_reset: '--',
+    }
+  }
+
+  // 峰谷倒计时（上游 countdown 占位符）：距下一次切换的 hh:mm
+  function peakCountdownText() {
+    try {
+      var now = new Date(Date.now() + 8 * 3600 * 1000) // 北京时间
+      var day = now.getUTCDay()
+      var h = now.getUTCHours()
+      var weekend = day === 0 || day === 6
+      if (weekend) return '周末全天谷价'
+      var marks = [9, 12, 14, 18]
+      var next = null
+      for (var i = 0; i < marks.length; i++) if (h < marks[i]) { next = marks[i]; break }
+      if (next === null) return '明日 09:00'
+      var mins = (next - h) * 60 - now.getUTCMinutes()
+      var hh = Math.floor(mins / 60)
+      var mm = mins % 60
+      return (hh > 0 ? hh + '小时' : '') + mm + '分后'
+    } catch (err) { return '' }
+  }
+
+  function peakLabelOn() {
+    try {
+      var now = new Date(Date.now() + 8 * 3600 * 1000)
+      var day = now.getUTCDay()
+      if (day === 0 || day === 6) return false
+      var h = now.getUTCHours()
+      return (h >= 9 && h < 12) || (h >= 14 && h < 18)
+    } catch (err) { return false }
+  }
+
+  // 占位符替换（与 lib/bubble.js renderTemplate 同语义：未知键原样保留）
+  function fillTemplate(tpl, values) {
+    var s = String(tpl === undefined || tpl === null ? '' : tpl)
+    return s.replace(/\{([a-z_]+)\}/g, function (all, key) {
+      return Object.prototype.hasOwnProperty.call(values, key) ? String(values[key]) : all
+    })
+  }
+
+  // 图片类模块：独占一整行，且一个泡泡只能有一个（与 lib/bubble.js 同规则）
+  function isImgMod(m) {
+    return !!m && (m.type === 'image' || m.type === 'randimg')
+  }
+
+  // 单个模块 → DOM 行内块（上游 blockOf 的等价实现，含逐模块字形/底色/跑马灯）
+  function buildModuleEl(m, key) {
+    var el
+    if (isImgMod(m)) {
+      el = document.createElement('img')
+      el.className = 'wp-mod-img'
+      var id = ''
+      if (m.type === 'image') {
+        id = m.imgId || ''
+      } else {
+        var imgs = Array.isArray(m.imgs) ? m.imgs : []
+        var pickId = pickWeighted(imgs, lastLineByMod[key + ':img'])
+        lastLineByMod[key + ':img'] = pickId
+        id = pickId
+      }
+      el.alt = ''
+      el.draggable = false
+      if (id) {
+        api.readBubbleImg(id).then(function (res) {
+          if (res && res.ok) el.src = 'data:' + res.mime + ';base64,' + res.base64
+        }).catch(function () {})
+      }
+      if (m.imgScale !== undefined) {
+        el.style.height = (moduleFontU(6) / 1026 * 2.6 * m.imgScale) + 'em'
+      }
+      return el
+    }
+    el = document.createElement('span')
+    el.className = 'wp-mod'
+    var text = ''
+    if (m.type === 'text') text = m.text || ''
+    else if (m.type === 'link') { text = m.text || ''; el.classList.add('wp-mod-link') }
+    else if (m.type === 'random') {
+      var lines = Array.isArray(m.lines) ? m.lines : []
+      var picked = pickWeighted(lines, lastLineByMod[key + ':ln'])
+      lastLineByMod[key + ':ln'] = picked
+      text = picked
+    } else {
+      // balance / today / peak / cost：内容模板 + 占位符
+      text = fillTemplate(m.tpl, moduleValues())
+    }
+    el.textContent = text
+    // 字号：以 px 为单位，随 --wp-u（= 窗口基准/1026）联动缩放
+    var u = moduleFontU(m.size)
+    el.style.fontSize = 'calc(' + u + ' * var(--wp-u))'
+    el.style.setProperty('--wp-mod-u', String(u))
+    if (m.bold) el.style.fontWeight = '800'
+    if (m.italic) el.style.fontStyle = 'italic'
+    if (m.ul) el.style.textDecoration = 'underline'
+    if (m.color) el.style.color = m.color
+    if (m.rgb) { el.classList.add('wp-rgb-' + m.rgb) }
+    if (m.bg) el.style.background = m.bg
+    if (m.bgrgb) el.classList.add('wp-bgrgb-' + m.bgrgb)
+    if (m.wrap) el.classList.add('wp-mod-wrap')
+    return el
+  }
+
+  // 加权抽样（通用；last 用于避免连续重复）
+  function pickWeighted(list, last) {
+    var arr = (Array.isArray(list) ? list : []).filter(function (x) {
+      return x && (typeof x === 'string' ? x : (x.t || x.id))
+    })
+    if (!arr.length) return ''
+    var pool = arr
+    if (arr.length > 1 && last) {
+      var filtered = arr.filter(function (x) {
+        var v = typeof x === 'string' ? x : (x.t || x.id)
+        return v !== last
+      })
+      if (filtered.length) pool = filtered
+    }
+    var total = 0
+    var i
+    for (i = 0; i < pool.length; i++) total += Math.max(1, Math.round(Number(pool[i] && pool[i].w) || 1))
+    var r = Math.random() * total
+    var acc = 0
+    for (i = 0; i < pool.length; i++) {
+      acc += Math.max(1, Math.round(Number(pool[i] && pool[i].w) || 1))
+      if (r < acc) return typeof pool[i] === 'string' ? pool[i] : (pool[i].t || pool[i].id)
+    }
+    var last2 = pool[pool.length - 1]
+    return typeof last2 === 'string' ? last2 : (last2.t || last2.id)
+  }
+
+  // 模块数组 → 行数组（与 lib/bubble.js rowsOf 同规则：row 键合并、图片独占行）
+  function rowsOf(mods) {
+    var out = []
+    var cur = null
+    for (var i = 0; i < (mods || []).length; i++) {
+      var m = mods[i] || {}
+      var isImg = isImgMod(m)
+      if (isImg) { out.push([m]); cur = null; continue }
+      var key = (typeof m.row === 'number' && isFinite(m.row) && Math.round(m.row) === m.row && m.row > 0) ? m.row : null
+      if (cur && cur.key !== null && key === cur.key) { cur.row.push(m); continue }
+      cur = { key: key, row: [m] }
+      out.push(cur.row)
+    }
+    return out.slice(0, customBubbleLimits.rowMax)
+  }
+
+  // 渲染一个自定义泡（items[idx] 落地后调用）
+  function renderCustomBubble(modules) {
+    clearMods()
+    var rows = rowsOf(modules)
+    var values = moduleValues()
+    for (var r = 0; r < rows.length; r++) {
+      var rowEl = document.createElement('div')
+      rowEl.className = 'wp-modrow'
+      rowEl.style.setProperty('--wp-row-i', String(r))
+      // 逐行进入动画（CSS 按下标错峰）
+      rowEl.style.animationDelay = (r * 70) + 'ms'
+      for (var c = 0; c < rows[r].length; c++) {
+        var mod = rows[r][c]
+        rowEl.appendChild(buildModuleEl(mod, 'r' + r + 'c' + c))
+      }
+      modsBox.appendChild(rowEl)
+      modsEls.push(rowEl)
+    }
+    modsBox.style.display = rows.length ? 'flex' : 'none'
+    // 自定义泡存在时隐藏内置三行文字
+    labelEl.style.display = 'none'
+    amountEl.style.display = 'none'
+    hintEl.style.display = 'none'
+    gifEl.style.display = 'none'
+  }
+
+  function clearMods() {
+    for (var i = 0; i < modsEls.length; i++) {
+      if (modsEls[i] && modsEls[i].parentNode) modsEls[i].parentNode.removeChild(modsEls[i])
+    }
+    modsEls = []
+    modsBox.style.display = 'none'
+  }
+
+  // 自定义泡泡是否可用（有 items 即接管；否则完全走原有内置逻辑）
+  function hasCustomBubble() {
+    return !!(customBubble && Array.isArray(customBubble.items) && customBubble.items.length)
+  }
+
+  // 取第 idx 项并落地（choice → 按权重抽一个候选，上游 bubblePickChoiceStep）
+  function resolveBubbleStep(idx) {
+    var items = (customBubble && customBubble.items) || []
+    if (idx < 0 || idx >= items.length) return null
+    var it = items[idx]
+    if (it && it.kind === 'choice' && Array.isArray(it.options) && it.options.length) {
+      var total = 0
+      var i
+      for (i = 0; i < it.options.length; i++) total += Math.max(1, Math.round(Number(it.options[i] && it.options[i].w) || 1))
+      var r = Math.random() * total
+      var acc = 0
+      for (i = 0; i < it.options.length; i++) {
+        acc += Math.max(1, Math.round(Number(it.options[i] && it.options[i].w) || 1))
+        if (r < acc) return (it.options[i] && it.options[i].item) || { kind: 'normal' }
+      }
+      return (it.options[it.options.length - 1].item) || { kind: 'normal' }
+    }
+    return it || { kind: 'normal' }
+  }
+
+  // 显示「下一条」并自增序号（上游 bubbleShowSeqNext 的语义：显示时自增）
+  function showSeqNext() {
+    if (!hasCustomBubble()) return false
+    var items = customBubble.items
+    if (bubbleSeqIdx >= items.length) { return false }
+    var resolved = resolveBubbleStep(bubbleSeqIdx)
+    bubbleSeqIdx++
+    if (!resolved) return false
+    if (resolved.kind === 'custom' && Array.isArray(resolved.modules)) {
+      renderCustomBubble(resolved.modules)
+      return true
+    }
+    // normal / random 交给原有内置渲染（random 用内置随机台词池）
+    clearMods()
+    if (resolved.kind === 'random') {
+      applyBubbleLines(pickRandomLines())
+    } else {
+      restoreBubbleLines()
+    }
+    return true
+  }
+
   function restoreBubbleLines() {
     if (bubbleSwapTimer) { clearTimeout(bubbleSwapTimer); bubbleSwapTimer = null }
     if (hintFadeTimer) { clearTimeout(hintFadeTimer); hintFadeTimer = null }
     if (gifFadeTimer) { clearTimeout(gifFadeTimer); gifFadeTimer = null }
     lastHintText = null
+    clearMods()
     textBox.style.transition = ''
     textBox.style.opacity = ''
     gifEl.style.display = 'none'
@@ -336,6 +612,85 @@
     restoreBubbleLines()
     bubbleBox.classList.add('wp-bubble-open')
     reportShape()
+    bubbleTimer = setTimeout(hideBubble, BUBBLE_MS)
+  }
+
+  // 点击回调函数的可选注入：测试/无 preload 环境下降级为直接 showBubble
+  function openMenuSafe() {
+    try { api.openMenu() } catch (err) {}
+  }
+
+  // ------------------------------------------------------------------ 点击鲸鱼
+  // 严格移植上游 whaleClick：
+  //   · 未显示 → 开新轮，从第 1 项开始（bubbleSeqIdx = 0 后在显示时自增）
+  //   · 开启 tapAdvance → 点角色 = 往后推进一项；已是最后一项则收起
+  //   · 关闭 tapAdvance（默认）→ 正在看第 1 项只续时；第 2 项及以后回到第 1 项
+  // 关键：bubbleSeqIdx 是「显示时自增」的，因此 idx<=1 恰好表示「正显示第 1 项」。
+  // ------------------------------------------------------------------ 点击鲸鱼
+  // 语义（桌宠版，对上游 whaleClick 的必要改造）：
+  //
+  // 上游有两个可点对象：**鲸鱼**（回到第 1 项 / 续时）与**气泡**（推进到下一项）。
+  // 桌宠里气泡是纯装饰、不可点，只有一个交互面。若照搬「点鲸鱼不推进」，
+  // 用户永远看不到第 2 项及以后（实测：点两次仍停在第一项）。
+  //
+  // 因此桌宠版统一为「点一下就往后走一项」，与 tapAdvance 开关解耦：
+  //   未显示      → 开新轮，显示第 1 项
+  //   还有下一项  → 推进到下一项
+  //   已是最后一项 → 收起泡泡（下次点击从第 1 项开始）
+  //
+  // tapAdvance 仍然有意义：它控制「收起后是否记住位置」的观感 —— 见 bubbleNext。
+  // 这样无论开关如何，用户都能完整走完序列，不会卡在第一项。
+  function onWhaleTap() {
+    if (!bubbleOn) return
+    if (!bubbleShown) {
+      bubbleRoundOn = true
+      bubbleSeqIdx = 0
+      startRound()
+      return
+    }
+    bubbleNext()
+  }
+
+  // 开新轮：有自定义泡泡配置则走配置序列，否则回落到内置行为
+  function startRound() {
+    // 关键：bubbleShown 必须在渲染自定义泡时一并置真。
+    // 旧实现只加了 CSS 类、没置这个标志，于是下一次点击看到 bubbleShown=false，
+    // 又当成「全新一轮」重新渲染第 1 项 —— 表现为「点第二下没反应、永远停在第 1 项」。
+    if (!showSeqNext()) {
+      // 无自定义配置（或序列已尽）→ 原有行为：余额泡 + 自动随机台词
+      showBubble()
+    } else {
+      bubbleShown = true
+      bubbleRandomActive = false
+      bubbleBox.classList.add('wp-bubble-open')
+      reportShape()
+      resetBubbleTtl()
+    }
+  }
+
+  // 推进到下一项；已是最后一项则关闭
+  function bubbleNext() {
+    if (!bubbleShown) return
+    var total = (customBubble && Array.isArray(customBubble.items)) ? customBubble.items.length : 0
+    if (bubbleRoundOn && customBubble && bubbleSeqIdx < total) {
+      // 还有下一项：淡出淡入切换内容，不收起气泡
+      swapBubbleContent(function () {
+        if (!showSeqNext()) hideBubble()
+      })
+      resetBubbleTtl()
+      return
+    }
+    // 自定义序列已走完 → 收起；下次点击重新从第 1 项开始
+    if (customBubble && total > 0) {
+      hideBubble()
+      return
+    }
+    // 无自定义配置：沿用内置「点一下切台词 / 再点收起」的既有行为
+    hideBubble()
+  }
+
+  function resetBubbleTtl() {
+    if (bubbleTimer) { clearTimeout(bubbleTimer); bubbleTimer = null }
     bubbleTimer = setTimeout(hideBubble, BUBBLE_MS)
   }
 
@@ -369,6 +724,11 @@
     bubbleRandomActive = false
     bubbleRandomLines = null
     bubbleShown = false
+    // 收起即结束本轮：下次点击必须重新从第 1 项开始（否则会断点续播，观感像卡住）
+    bubbleRoundOn = false
+    bubbleSeqIdx = 0
+    // 清掉自定义模块，否则收起后 DOM 仍残留（下次开局会叠加上一份内容）
+    clearMods()
     bubbleBox.classList.remove('wp-bubble-open')
     reportShape()
     gifFadeTimer = setTimeout(function () {
@@ -380,6 +740,13 @@
   bubbleBox.addEventListener('click', function (e) {
     e.stopPropagation()
     if (!bubbleShown) return
+    // 气泡展开时它会覆盖鲸鱼点击区（open 态 svg 可点），因此「点气泡」必须在
+    // 自定义泡泡启用时**推进序列**，而不是老的无条件切随机台词 —— 后者会把
+    // 用户困在第 1 项（实测：点两次仍停在第 1 项）。
+    if (customBubble && Array.isArray(customBubble.items) && customBubble.items.length) {
+      bubbleNext()
+      return
+    }
     if (bubbleRandomActive) {
       hideBubble()
     } else {
@@ -476,16 +843,74 @@
     return s.indexOf('assets/') === 0 ? '../' + s : '../' + s
   }
 
-  // 主图/预警图二选一：预警换图开启且余额低于阈值 → 预警图；否则主图
+  // 主图 / 预警图 / 播报表情 三选一。
+  // 优先级（高 → 低）：
+  //   1. 预警表情（余额低于阈值）—— 「必须看见」的状态，压过一切
+  //   2. 播报表情（余额快速减少）—— 短暂的表情反馈，见 triggerDropFace()
+  //   3. 自定义角色图（用户上传）
+  //   4. 主图
   function updateHeroImage() {
     var low = alertImage && isLowBalance()
-    var want = low ? resolveImgPath(alertImgPath) : resolveImgPath(mainImgPath)
-    if (want && want !== currentImgSrc) {
-      currentImgSrc = want
-      img.src = want
-      setupHitTest(want)
+    if (low) {
+      applyImgSrc(resolveImgPath(alertImgPath))
+      alertBadge.classList.add('wp-alert-badge-show')
+      return
     }
-    alertBadge.classList.toggle('wp-alert-badge-show', !!low)
+    alertBadge.classList.remove('wp-alert-badge-show')
+    // 快速减少播报期间显示开心表情（仅在未触发预警时）
+    if (dropFaceUntil > 0 && Date.now() < dropFaceUntil && dropImage && dropImgPath) {
+      applyImgSrc(resolveImgPath(dropImgPath))
+      return
+    }
+    if (roleId && roleId !== 'default' && roleImgSrc) { applyImgSrc(roleImgSrc); return }
+    applyImgSrc(resolveImgPath(mainImgPath))
+  }
+
+  function applyImgSrc(want) {
+    if (!want || want === currentImgSrc) return
+    currentImgSrc = want
+    img.src = want
+    setupHitTest(want)
+  }
+
+  // ------------------------------------------------------- 快速减少播报表情
+  // 余额下降被观测到时切到「开心」表情并保持一小段时间，随后自动回落。
+  // 与记账/任务结束音共用同一个信号（余额下降 = 观测到一次消费）。
+  var dropFaceUntil = 0      // 播报表情的截止时间戳（0 = 未激活）
+  var dropFaceTimer = null
+
+  function triggerDropFace() {
+    if (!dropImage || !dropImgPath) return
+    // 预警状态优先：不覆盖预警表情
+    if (alertImage && isLowBalance()) return
+    var hold = dropImgHoldMs > 0 ? dropImgHoldMs : 0
+    if (hold <= 0) return
+    dropFaceUntil = Date.now() + hold
+    updateHeroImage()
+    if (dropFaceTimer) { clearTimeout(dropFaceTimer); dropFaceTimer = null }
+    dropFaceTimer = setTimeout(function () {
+      dropFaceTimer = null
+      dropFaceUntil = 0
+      updateHeroImage()
+    }, hold + 40) // 多留一帧，避免边界竞争
+  }
+
+  // 加载自定义角色的图片（data URL；default 走内置主图）
+  var roleImgSrc = ''
+  function loadRoleImage() {
+    if (!api.readRole) return
+    if (!roleId || roleId === 'default') { roleImgSrc = ''; updateHeroImage(); return }
+    api.readRole(roleId).then(function (res) {
+      if (!res || !res.ok) {
+        // 角色不存在（被删）→ 回退默认，避免白图
+        roleId = 'default'
+        roleImgSrc = ''
+        api.setConfig({ roleId: 'default' })
+      } else {
+        roleImgSrc = 'data:' + res.mime + ';base64,' + res.base64
+      }
+      updateHeroImage()
+    }).catch(function () {})
   }
 
   async function refresh(manual) {
@@ -500,11 +925,19 @@
         var nc = String(data.currency || 'CNY')
         var changed = state.balance !== null && (nb !== state.balance || nc !== state.currency)
         var currencyChanged = state.currency !== null && nc !== state.currency
+        // 任务结束音：余额下降 = 观测到一次消费完成（同币种、非首次加载、非手动刷新）
+        var consumed = !currencyChanged && state.balance !== null && typeof nb === 'number' &&
+          typeof state.balance === 'number' && nb < state.balance
         state.balance = nb
         state.currency = nc
         state.message = ''
         state.todayUsage = data.todayUsage !== undefined ? data.todayUsage : null
         state.isPeak = !!data.isPeak
+        // 余额下降 = 观测到一次消费：播报表情 + 任务结束音（同一个信号）
+        if (consumed && !manual) {
+          triggerDropFace()
+          playTaskEndSound()
+        }
         if (changed && !currencyChanged) {
           if (!manual) {
             showBubble()
@@ -642,41 +1075,20 @@
     }
   }
 
-  // ---------- 透明点击穿透：窗口裁剪为鲸鱼/气泡/按钮区域 ----------
-  // 用布局盒（offset*，不含动画 transform）计算窗口内矩形，其余区域点击
-  // 不落在窗口上 → 自然穿透到下方桌面/窗口。换图、开合气泡、缩放后重报。
-  function reportShape() {
-    try {
-      var pad = 10
-      var W = state.winW, H = state.winH
-      var rects = []
-      var p = function (x, y, w, h) {
-        // 钳制到窗口范围内（shape 仅接受窗口内部区域）
-        var x0 = Math.max(0, x), y0 = Math.max(0, y)
-        var x1 = Math.min(W, x + w), y1 = Math.min(H, y + h)
-        if (x1 > x0 && y1 > y0) rects.push({ x: x0, y: y0, w: x1 - x0, h: y1 - y0 })
-      }
-      var w = img.offsetWidth
-      if (w > 0) p(img.offsetLeft - pad, img.offsetTop - pad, w + pad * 2, img.offsetHeight + pad * 2)
-      if (bubbleShown) {
-        var b = bubbleBox.offsetWidth
-        if (b > 0) p(bubbleBox.offsetLeft - pad, bubbleBox.offsetTop - pad, b + pad * 2, bubbleBox.offsetHeight + pad * 2)
-      }
-      var m = menuBtn.offsetWidth
-      if (m > 0) p(menuBtn.offsetLeft - 4, menuBtn.offsetTop - 4, m + 8, menuBtn.offsetHeight + 8)
-      if (flipped) {
-        // 水平镜像：把矩形按窗口宽度翻转
-        for (var i = 0; i < rects.length; i++) rects[i].x = W - (rects[i].x + rects[i].w)
-      }
-      // 空 shape 在 Windows 上会使整个窗口从合成中消失且不可点击（问题 2 根因）。
-      // 兜底：任何时刻至少保留一个覆盖鲸鱼区的矩形，绝不上报空数组。
-      if (rects.length === 0) rects.push({ x: 0, y: 0, w: W, h: H })
-      api.setShape(rects)
-    } catch (err) {}
-  }
+  // ---------- 不再裁剪窗口（按用户要求移除 setShape）----------
+  // 保留空实现是为了不动散落各处的调用点（换图/开合气泡/缩放/镜像后都会调），
+  // 避免为删一个副作用而改动多处流程。主进程侧同样已忽略 pet:shape。
+  //
+  // 移除原因（三个都是实际踩到的）：
+  //   1) 气泡被一起裁掉：气泡展开时超出鲸鱼矩形就被切边（用户明确要求不要裁剪气泡）；
+  //   2) 早期 {x,y,w,h} 键名不合法导致 setShape **每次都静默失败**，窗口其实
+  //      一直是完整矩形 —— 「透明部分有遮挡」与「时好时坏」都源于此；
+  //   3) 缩放后 shape 若未及时跟上，右下角那片不在裁剪区内 → 点不到、拖不动，
+  //      表现为「调整大小后拖不到右下角，重启才好」。
+  // 现在窗口保持完整矩形：交互稳定、气泡完整、缩放后行为一致。
+  function reportShape() {}
 
   async function setScale(v) {
-    console.log('[diag] setScale called next=' + v + ' current=' + state.scale)
     var next = Math.round(clamp(Number(v), MIN_SCALE, MAX_SCALE) * 10) / 10
     if (next === state.scale) return
     var oldW = state.winW, oldH = state.winH
@@ -686,29 +1098,68 @@
     var fixX = state.posX + oldW
     var fixY = state.posY + oldH
     state.scale = next
-    // 先请求主进程真实窗口尺寸，再据此设定 CSS 视觉尺寸：
-    // 碰撞箱（点击区/拖拽）以窗口真实 DIP 尺寸为准，CSS 仅做等比视觉缩放，
-    // 二者必须同源 —— 否则 Linux/Wayland 下 CSS 像素与窗口 DIP 比例偏差，
-    // 会出现「视觉缩小、碰撞箱未缩小」（右/下/上空气墙）。
-    var rb = await api.resizeWindow(newW, newH)
+    // 主进程已等到真实尺寸生效才返回（见 window:resize 注释）：
+    // 碰撞箱（点击区/拖拽/钳制）与 CSS 视觉尺寸必须同源，否则 Linux/Wayland 下
+    // 「视觉缩小、碰撞箱未缩小」会出现右/下空气墙（由大变小时最明显）。
+    // IPC 失败不能让缩放整条路径崩掉：任一调用抛错时退回请求尺寸，继续走完
+    // CSS 更新与 shape 上报（否则会出现「窗口没变、透明区还挡着」的观感）。
+    var rb = await api.resizeWindow(newW, newH).catch(function () { return null })
     var realW = (rb && rb.width > 0) ? rb.width : newW
-    console.log('[diag] resizeWindow returned ' + (rb ? JSON.stringify(rb) : 'null') + ' -> realW=' + realW)
     var realH = (rb && rb.height > 0) ? rb.height : newH
     root.style.setProperty('--wp-base', realW + 'px')
     state.winW = realW
     state.winH = realH
+    // 关键：CSS 尺寸变化会**异步**触发布局，img 的 offsetWidth 要到下一帧才更新。
+    // 若此刻立刻调用 settlePos，fishRect() 读到的还是旧布局 → 按旧矩形钳制 →
+    // 缩小后右侧/底部留下「空气墙」。这里等一帧，保证按新布局计算。
+    await nextFrame()
     var x = fixX - realW
     var y = fixY - realH
-    var d2 = await api.getDisplayBounds()
-    var wa2 = await api.getWorkArea()
+    var d2 = await api.getDisplayBounds().catch(function () { return null })
+    var wa2 = await api.getWorkArea().catch(function () { return null })
+    if (!d2 || !wa2) { api.setConfig({ scale: next }); return }
     // 与拖拽引擎同一套钳制（按可见图形矩形，而非固定的 40.55% 留白估算）
     var fit = settlePos(x, y, d2, wa2)
     x = fit.x
     y = fit.y
-    var rp = await api.setWindowPos(x, y)
+    var rp = await api.setWindowPos(x, y).catch(function () { return null })
     if (rp && isFinite(rp.x) && isFinite(rp.y)) { x = Math.round(rp.x); y = Math.round(rp.y); advancePos(x, y) }
+    // 再等一帧后复钳一次：镜像方向/可见范围可能刚变化，二次收敛避免残留死区
+    await nextFrame()
+    var fit2 = settlePos(x, y, d2, wa2)
+    if (fit2.x !== x || fit2.y !== y) {
+      x = fit2.x
+      y = fit2.y
+      await api.setWindowPos(x, y).catch(function () { return null })
+      advancePos(x, y)
+    }
     api.setConfig({ scale: next, posX: x, posY: y })
+    // shape 必须在布局稳定后上报：上面已等过帧，这里再等到「图片尺寸确实等于
+    // 新基准推算值」才报，避免把旧布局的矩形交给 setShape（那会让裁剪框与新窗口
+    // 不匹配，透明区域继续吃点击）。最多重试若干帧。
+    await waitForImageSize(Math.round(realW * 0.5945))
     reportShape()
+  }
+
+  // 等到 img 布局尺寸达到期望值（最多 ~10 帧）；超时也返回，不阻塞
+  function waitForImageSize(expectW) {
+    return new Promise(function (resolve) {
+      var tries = 0
+      function check() {
+        tries++
+        if (Math.abs(img.offsetWidth - expectW) <= 1 || tries > 10) return resolve()
+        nextFrame().then(check)
+      }
+      check()
+    })
+  }
+
+  // 等一帧（布局生效）；无 rAF 环境（测试）时退化为微任务
+  function nextFrame() {
+    return new Promise(function (resolve) {
+      if (typeof requestAnimationFrame === 'function') requestAnimationFrame(function () { resolve() })
+      else setTimeout(resolve, 0)
+    })
   }
 
   // ------------------------------------------------------------- 命中测试
@@ -813,7 +1264,10 @@
     return { x: window.screenX + e.clientX, y: window.screenY + e.clientY }
   }
   function onDocPointerDown(e) {
-    if (e.target && e.target.closest && (e.target.closest('.wp-menu-btn') || e.target.closest('.wp-bubble'))) return
+    // 气泡展开时它可能盖住鲸鱼：这一击不能吞掉，要按「点鲸鱼」处理（推进泡泡序列）。
+    // 旧实现直接 return，而 bubbleBox 的 click 只在点到 SVG 已绘制像素时才触发 ——
+    // 点在气泡盒内的透明处两边都收不到，表现为「点第二下完全没反应」。
+    if (e.target && e.target.closest && e.target.closest('.wp-menu-btn')) return
     if (e.button !== 0 && e.pointerType === 'mouse') return
     if (!isWhaleHit(e)) return
     try { e.preventDefault() } catch (err) {}
@@ -835,6 +1289,7 @@
     pressDown()
     setWidgetCursor('grabbing')
     // 附上「可见图形矩形」：主进程据此钳制，四边都能让鲸鱼本体贴到屏幕边
+    // dragStart 失败不影响后续 pointerup 的点击判定（气泡照常弹出）
     api.dragStart(e.clientX, e.clientY, abs0.x, abs0.y, fishRect())
     // onDocPointerMove 是持久监听（启动时注册），不在此重复注册，
     // 否则拖动结束 removeEventListener 会把持久监听一并摘掉。
@@ -879,8 +1334,11 @@
     root.classList.remove('wp-dragging')
     setWidgetCursor('')
     if (clickAllowed && !drag.moved) {
-      await api.dragEnd()
-      showBubble()
+      // 点击判定与「结束拖拽」解耦：dragEnd 失败/超时绝不能吞掉气泡。
+      // 旧实现 await api.dragEnd() 后才 onWhaleTap()，一旦该 IPC 抛错或挂住，
+      // 表现为「点鲸鱼完全没反应」（气泡不弹、也不刷新）。
+      api.dragEnd().catch(function () {})
+      onWhaleTap()
       refresh(true)
       return
     }
@@ -899,14 +1357,16 @@
   }
 
   async function finishDrag() {
-    var end = await api.dragEnd() // {x, y} 主进程记录的最终窗口位置
-    var bd = await api.getDisplayBounds()
-    var wa = await api.getWorkArea()
-    // 无吸附：自由定位，只按「可见图形四边可贴屏幕边」钳制（与主进程引擎同一套规则）
+    // 任一 IPC 失败都不应让松手后的定位/记忆位置整段中断
+    var end = await api.dragEnd().catch(function () { return null })
+    var bd = await api.getDisplayBounds().catch(function () { return null })
+    var wa = await api.getWorkArea().catch(function () { return null })
+    if (!end || !bd || !wa) return
+    // 自由定位：只按「可见图形四边可贴屏幕边」钳制（与主进程引擎同一套规则）
     var fit = settlePos(Math.round(end.x), Math.round(end.y), bd, wa)
     var x = fit.x
     var y = fit.y
-    var rp = await api.setWindowPos(x, y)
+    var rp = await api.setWindowPos(x, y).catch(function () { return null })
     if (rp && isFinite(rp.x) && isFinite(rp.y)) { x = Math.round(rp.x); y = Math.round(rp.y); advancePos(x, y) }
     api.setConfig({ posX: x, posY: y })
   }
@@ -940,8 +1400,14 @@
 
   function applySoundSet() {
     try {
-      var pressSrc = pressSound ? resolveImgPath(pressSound) : (soundSet === 'fx1' ? '../assets/D1.mp3' : '../assets/Ya1.mp3')
-      var releaseSrc = releaseSound ? resolveImgPath(releaseSound) : (soundSet === 'fx1' ? '../assets/D2.mp3' : '../assets/Ya2.mp3')
+      // v0.3.5：当前音效组可能是用户自定义组。自定义组通过 readAudio 取字节播放
+      // （不走 file://，以便统一 MIME 并支持内置 wav 片段）。
+      if (audioGroup && audioGroup !== 'duck' && audioGroup !== 'fx1') {
+        applyCustomSoundGroup(audioGroup)
+        return
+      }
+      var pressSrc = pressSound ? resolveImgPath(pressSound) : (audioGroup === 'fx1' ? '../assets/D1.mp3' : '../assets/Ya1.mp3')
+      var releaseSrc = releaseSound ? resolveImgPath(releaseSound) : (audioGroup === 'fx1' ? '../assets/D2.mp3' : '../assets/Ya2.mp3')
       pressAudio = new Audio(pressSrc)
       pressAudio.preload = 'auto'
       pressAudio.volume = soundVol
@@ -949,6 +1415,105 @@
       releaseAudio.preload = 'auto'
       releaseAudio.volume = soundVol
     } catch (err) {}
+  }
+
+  // 自定义音效组：解析两个槽位后按需加载；'' = 显式静音（置 null，不发声）
+  function applyCustomSoundGroup(groupId) {
+    pressAudio = null
+    releaseAudio = null
+    if (!api.getAudio) return
+    api.getAudio().then(function (res) {
+      if (!res || !res.groups) return
+      var g = null
+      for (var i = 0; i < res.groups.length; i++) if (res.groups[i].id === groupId) g = res.groups[i]
+      if (!g) return
+      // 空串 = 显式静音 → 保持 null；null/未设置 → 回退内置小黄鸭
+      var pFrag = g.press === '' ? '' : (g.press || 'ya1')
+      var rFrag = g.release === '' ? '' : (g.release || 'ya2')
+      if (pFrag) loadFragmentAudio(pFrag, function (a) { pressAudio = a })
+      if (rFrag) loadFragmentAudio(rFrag, function (a) { releaseAudio = a })
+    }).catch(function () {})
+  }
+
+  // 片段 → Audio 元素（data URL；内置片段由主进程按自带 MIME 下发）
+  function loadFragmentAudio(fragId, cb) {
+    api.readAudio(fragId).then(function (res) {
+      if (!res || !res.ok) return
+      try {
+        var a = new Audio('data:' + res.mime + ';base64,' + res.base64)
+        a.preload = 'auto'
+        a.volume = soundVol
+        cb(a)
+      } catch (err) {}
+    }).catch(function () {})
+  }
+
+  // ---------------------------------------------------------- 任务结束音
+  // 上游用「每轮对话结束（turn/end）」触发；桌宠独立运行时没有对话事件流，
+  // 因此以「余额下降被观测到」作为一次消费完成的近似信号（与记账模式同一依据）。
+  // 语义与上游一致：默认关闭；开启后按 sel 播放单体 / 内置槽 / 整个音效组。
+  var taskEnd = { on: false, sel: 'frag:exp_orb', pins: [] }
+  var taskEndAudioCache = {}
+
+  function applyTaskEnd(cfgObj) {
+    if (!cfgObj || typeof cfgObj !== 'object') return
+    taskEnd = {
+      on: cfgObj.on === true,
+      sel: typeof cfgObj.sel === 'string' ? cfgObj.sel : 'frag:exp_orb',
+      pins: Array.isArray(cfgObj.pins) ? cfgObj.pins : [],
+    }
+  }
+
+  function playTaskEndSound() {
+    if (!taskEnd.on || !soundOn) return
+    var sel = String(taskEnd.sel || '')
+    if (sel.indexOf('grp:') === 0) {
+      playGroupClick(sel.slice(4))
+      return
+    }
+    if (sel.indexOf('frag:') === 0) {
+      playFragment(sel.slice(5))
+      return
+    }
+    if (sel.indexOf('preset:') === 0) {
+      var parts = sel.split(':')
+      if (parts.length >= 3) playFragment(parts[2] === 'release' ? (parts[1] === 'fx1' ? 'd2' : 'ya2') : (parts[1] === 'fx1' ? 'd1' : 'ya1'))
+    }
+  }
+
+  function playFragment(fragId) {
+    if (!fragId) return
+    var cached = taskEndAudioCache[fragId]
+    if (cached) {
+      try { cached.currentTime = 0; cached.volume = soundVol; cached.play() } catch (err) {}
+      return
+    }
+    loadFragmentAudio(fragId, function (a) {
+      taskEndAudioCache[fragId] = a
+      try { a.play() } catch (err) {}
+    })
+  }
+
+  // 整个音效组当一次「点按」播放：先 press，结束后再 release。
+  // 与上游 playTaskEndGroupClick 一致 —— 只空一个槽时**仍要**播放另一个，
+  // 两个都空才静默返回（v729 修复的行为）。
+  function playGroupClick(groupId) {
+    if (!api.getAudio) return
+    api.getAudio().then(function (res) {
+      if (!res || !res.groups) return
+      var g = null
+      for (var i = 0; i < res.groups.length; i++) if (res.groups[i].id === groupId) g = res.groups[i]
+      if (!g) return
+      var pFrag = g.press === '' ? '' : (g.press || 'ya1')
+      var rFrag = g.release === '' ? '' : (g.release || 'ya2')
+      if (!pFrag && !rFrag) return // 两槽都空 → 静默
+      if (!pFrag) { playFragment(rFrag); return }
+      loadFragmentAudio(pFrag, function (pressA) {
+        pressA.volume = soundVol
+        pressA.onended = function () { if (rFrag) playFragment(rFrag) }
+        try { pressA.play() } catch (err) { if (rFrag) playFragment(rFrag) }
+      })
+    }).catch(function () {})
   }
 
   function playPress() {
@@ -1043,8 +1608,19 @@
     soundOn = soundVol > 0
     threshold = typeof c.lowBalanceThreshold === 'number' ? c.lowBalanceThreshold : 10
     alertImage = c.alertImage === true
+    // v0.3.5：隐藏菜单按钮
+    menuBtnHide = c.menuBtnHide === true
+    applyMenuBtnHide()
+    if (typeof c.audioGroup === 'string' && c.audioGroup) audioGroup = c.audioGroup
+    if (typeof c.roleId === 'string' && c.roleId && c.roleId !== roleId) { roleId = c.roleId; loadRoleImage() }
+    applyTaskEnd(c.taskEnd)
+    if (typeof c.bubbleTapAdvance === 'boolean' && customBubble) customBubble.tapAdvance = c.bubbleTapAdvance
     if (typeof c.alertImgPath === 'string' && c.alertImgPath.trim()) alertImgPath = c.alertImgPath.trim()
     if (typeof c.mainImgPath === 'string' && c.mainImgPath.trim()) mainImgPath = c.mainImgPath.trim()
+    // 播报表情：空串是合法值（= 不切换表情），所以不做「非空才写入」判断
+    if (typeof c.dropImgPath === 'string') dropImgPath = c.dropImgPath.trim()
+    if (typeof c.dropImage === 'boolean') dropImage = c.dropImage
+    if (typeof c.dropImgHoldMs === 'number' && isFinite(c.dropImgHoldMs)) dropImgHoldMs = Math.max(0, Math.round(c.dropImgHoldMs))
     if (typeof c.bubbleTextOk === 'string' && c.bubbleTextOk.trim()) bubbleTextOk = c.bubbleTextOk.trim().slice(0, 20)
     if (typeof c.bubbleTextLow === 'string' && c.bubbleTextLow.trim()) bubbleTextLow = c.bubbleTextLow.trim().slice(0, 20)
     if (typeof c.textColorOk === 'string') textColorOk = /^#[0-9a-fA-F]{6}$/.test(c.textColorOk.trim()) ? c.textColorOk.trim() : ''
@@ -1061,7 +1637,6 @@
     }
     applySoundSet()
     if (typeof c.scale === 'number' && c.scale !== state.scale) {
-      console.log('[diag] applyConfig scale path: cfg=' + c.scale + ' state=' + state.scale)
       await setScale(c.scale)
     }
     updateHeroImage()
@@ -1071,6 +1646,85 @@
   api.onConfigChanged(function (c) { applyConfig(c, false) })
   api.onCustomChanged(function (data) { applyCustom(data) })
   api.onRefresh(function () { refresh(true) })
+  if (api.onBubbleChanged) {
+    api.onBubbleChanged(function (data) {
+      if (data && data.config) { customBubble = data.config; bubbleSeqIdx = 0 }
+    })
+  }
+
+  // --------------------------------------------------- 自定义泡泡配置加载
+  function applyBubbleConfig(data) {
+    if (!data || !data.config) return
+    customBubble = data.config
+    if (data.limits) customBubbleLimits = data.limits
+    if (data.gradients && Array.isArray(data.gradients)) {
+      // 动态注册跑马灯配色（与菜单页共用同一份键名）
+      for (var i = 0; i < data.gradients.length; i++) {
+        root.classList.add('wp-has-rgb-' + data.gradients[i])
+      }
+    }
+    bubbleSeqIdx = 0
+  }
+
+  // ------------------------------------------------------- 隐藏菜单按钮
+  // 移植上游：开启后隐藏鲸鱼上的菜单按钮；桌面端右键鲸鱼唤出（再右键收起）。
+  // 触屏设备即使未开启也允许长按约 1.5s 唤出（上游 issue #91 的修复）。
+  var LONG_PRESS_MS = 1500
+  var LONG_PRESS_SLOP = 10
+  var longPressTimer = null
+  var longPressStart = null
+  var longPressFiredAt = 0
+
+  function applyMenuBtnHide() {
+    menuBtn.classList.toggle('wp-menu-btn-hidden', !!menuBtnHide)
+    if (menuBtnHide) menuBtn.classList.remove('wp-menu-btn-visible')
+  }
+
+  function isTouchUI() {
+    try {
+      if (window.matchMedia && window.matchMedia('(hover: none)').matches) return true
+      var coarse = window.matchMedia && window.matchMedia('(pointer: coarse)').matches
+      return !!(coarse && navigator.maxTouchPoints > 0)
+    } catch (err) { return false }
+  }
+
+  document.addEventListener('contextmenu', function (e) {
+    if (!menuBtnHide) return
+    if (!inClickable(e)) return
+    e.preventDefault()
+    openMenuSafe()
+  }, true)
+
+  document.addEventListener('touchstart', function (e) {
+    if (!menuBtnHide && !isTouchUI()) return
+    if (!inClickable(e)) return
+    if (e.touches && e.touches.length === 1) {
+      longPressStart = { x: e.touches[0].clientX, y: e.touches[0].clientY }
+      if (longPressTimer) clearTimeout(longPressTimer)
+      longPressTimer = setTimeout(function () {
+        longPressTimer = null
+        longPressFiredAt = Date.now()
+        try { if (navigator.vibrate) navigator.vibrate(10) } catch (err) {}
+        openMenuSafe()
+      }, LONG_PRESS_MS)
+    }
+  }, true)
+
+  document.addEventListener('touchmove', function (e) {
+    if (!longPressTimer || !longPressStart || !e.touches || !e.touches.length) return
+    var dx = e.touches[0].clientX - longPressStart.x
+    var dy = e.touches[0].clientY - longPressStart.y
+    if (Math.sqrt(dx * dx + dy * dy) > LONG_PRESS_SLOP) {
+      clearTimeout(longPressTimer)
+      longPressTimer = null
+    }
+  }, true)
+
+  function endLongPress() {
+    if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer = null }
+  }
+  document.addEventListener('touchend', endLongPress, true)
+  document.addEventListener('touchcancel', endLongPress, true)
 
   // ------------------------------------------------------------- 启动
   async function init() {
@@ -1094,6 +1748,8 @@
     setupHitTest()
     reportShape() // 按鲸鱼位置裁剪窗口 → 透明区域点击穿透
     api.getCustom().then(applyCustom).catch(function () {})
+    if (api.getBubble) api.getBubble().then(applyBubbleConfig).catch(function () {})
+    loadRoleImage()
     refresh(false)
     refreshTimer = setInterval(function () { refresh(false) }, refreshIntervalMs)
     idleCheckTimer = setInterval(checkIdle, 1500)

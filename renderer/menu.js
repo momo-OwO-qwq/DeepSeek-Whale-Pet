@@ -32,12 +32,41 @@
     alertAvail: $('wm-alert-avail'),
     mainPick: $('wm-main-pick'), mainReset: $('wm-main-reset'), mainNote: $('wm-main-note'),
     alertPick: $('wm-alert-pick'), alertReset: $('wm-alert-reset'), alertNote: $('wm-alert-note'),
+    // 余额减少播报形象（v0.3.5）
+    dropImage: $('wm-dropimage'),
+    dropPick: $('wm-drop-pick'), dropReset: $('wm-drop-reset'), dropNote: $('wm-drop-note'),
+    dropHold: $('wm-drop-hold'), dropHoldV: $('wm-drop-hold-v'),
     customReload: $('wm-custom-reload'), customOpen: $('wm-custom-open'), customNote: $('wm-custom-note'),
     configOpen: $('wm-config-open'),
     usageOpen: $('wm-usage-open'),
     soundsOpen: $('wm-sounds-open'),
     imagesOpen: $('wm-images-open'),
     refreshNow: $('wm-refresh-now'),
+    status: $('wm-status'), banner: $('wm-banner'),
+  }
+
+  // ---------- 状态反馈（新增展示层，不改动既有逻辑） ----------
+  // 旧版唯一的反馈是按钮文字变化；保存失败更是一点提示都没有（只有 saveError 字段）。
+  function setStatus(state, text) {
+    if (!els.status) return
+    els.status.dataset.state = state
+    els.status.textContent = text
+  }
+  function showSaveError(msg) {
+    if (!els.banner) return
+    if (msg) {
+      els.banner.textContent = '设置未能保存：' + msg + '（请检查配置目录是否存在且可写）'
+      els.banner.hidden = false
+      setStatus('error', '保存失败')
+    } else {
+      els.banner.hidden = true
+      els.banner.textContent = ''
+    }
+  }
+  function stamp() {
+    var d = new Date()
+    function p2(n) { return (n < 10 ? '0' : '') + n }
+    return p2(d.getHours()) + ':' + p2(d.getMinutes()) + ':' + p2(d.getSeconds())
   }
 
   // ---------- Tab 切换 ----------
@@ -46,6 +75,7 @@
     for (var i = 0; i < tabs.length; i++) {
       var on = tabs[i].getAttribute('data-page') === page
       tabs[i].classList.toggle('wm-tab-on', on)
+      tabs[i].setAttribute('aria-selected', on ? 'true' : 'false')
       var el = $('page-' + page)
       for (var j = 0; j < tabs.length; j++) {
         $('page-' + tabs[j].getAttribute('data-page')).hidden = true
@@ -80,7 +110,7 @@
   else if (systemDark.addListener) systemDark.addListener(onSystemThemeChange)
 
   function imgPathNote(path) {
-    if (!path) return '未提供（无默认预警图，可上传）'
+    if (!path) return '未提供（内置素材缺失，可选择图片）'
     if (path.indexOf('assets/') === 0) return path + '（内置素材）'
     return path.split('/').pop() + '（已复制到配置目录）'
   }
@@ -113,6 +143,13 @@
     els.vol.value = String(cfg.volume != null ? cfg.volume : 0.8)
     els.volV.textContent = Math.round((cfg.volume != null ? cfg.volume : 0.8) * 100) + '%'
     els.alertImage.checked = cfg.alertImage === true
+    // 余额减少播报形象
+    if (els.dropImage) els.dropImage.checked = cfg.dropImage !== false
+    if (els.dropHold) {
+      els.dropHold.value = String(typeof cfg.dropImgHoldMs === 'number' ? cfg.dropImgHoldMs : 2600)
+      els.dropHoldV.textContent = fmtSeconds(cfg.dropImgHoldMs)
+    }
+    if (els.dropNote) els.dropNote.textContent = '播报表情：' + imgPathNote(cfg.dropImgPath || '')
     els.mainNote.textContent = '主图：' + imgPathNote(cfg.mainImgPath || 'assets/DSniang1.png')
     els.alertNote.textContent = '预警图：' + imgPathNote(cfg.alertImgPath || '') + '（与主图独立）'
     if (cfg.alertImgPath) {
@@ -120,7 +157,7 @@
       els.alertAvail.className = 'wm-note wm-note-ok'
       els.alertImage.disabled = false
     } else {
-      els.alertAvail.textContent = '未提供默认预警图（无 assets/DSniang03.png）：开启预警换图需先在下方上传预警图。'
+      els.alertAvail.textContent = '内置预警图缺失（assets/DSniang-sad.png）：请先在下方为预警形象选择图片。'
       els.alertAvail.className = 'wm-note wm-note-warn'
     }
     if (cfg.apiKeySource === 'env') {
@@ -136,6 +173,8 @@
       els.apiKeyNote.className = 'wm-note wm-note-warn'
       els.apiKey.disabled = false
     }
+    // v0.3.5：隐藏菜单按钮（控件在「吸附」Tab，由 menu-v035.js 渲染交互）
+    if (window.__whaleV035) window.__whaleV035.setMenuBtnHide(cfg.menuBtnHide === true)
   }
 
   async function reload() {
@@ -152,6 +191,8 @@
 
   api.onConfigChanged(function (cfg) {
     if (!anyFocused()) fill(cfg)
+    if (cfg && cfg.saveError) showSaveError(cfg.saveError)
+    else { showSaveError(''); setStatus('idle', '已保存 ' + stamp()) }
   })
 
   // ---------- 关闭 ----------
@@ -191,6 +232,24 @@
   els.idleFade.addEventListener('change', function () { api.setConfig({ idleFade: els.idleFade.checked }) })
   els.autostart.addEventListener('change', function () { api.setConfig({ autostart: els.autostart.checked }) })
   els.alertImage.addEventListener('change', function () { api.setConfig({ alertImage: els.alertImage.checked }) })
+
+  // ---------- 余额减少播报形象 ----------
+  function fmtSeconds(ms) {
+    var n = typeof ms === 'number' && isFinite(ms) ? ms : 2600
+    if (n <= 0) return '不切换'
+    return (n / 1000).toFixed(1) + ' 秒'
+  }
+  if (els.dropImage) {
+    els.dropImage.addEventListener('change', function () { api.setConfig({ dropImage: els.dropImage.checked }) })
+  }
+  if (els.dropHold) {
+    els.dropHold.addEventListener('input', function () {
+      var v = Number(els.dropHold.value)
+      els.dropHoldV.textContent = fmtSeconds(v)
+      debounceSave({ dropImgHoldMs: v }, 200)
+    })
+  }
+  if (els.dropPick) bindImagePicker(els.dropPick, els.dropReset, 'drop', els.dropNote)
 
   // ---------- 滑块（实时预览 + 防抖保存） ----------
   els.scale.addEventListener('input', function () {
@@ -256,7 +315,7 @@
     api.setConfig({ textColorLow: '' }).then(function () { reload() })
   })
 
-  // ---------- 主图 / 预警图 上传 ----------
+  // ---------- 鲸鱼图片：日常形象 / 预警形象 ----------
   function bindImagePicker(pickBtn, resetBtn, kind, noteEl) {
     pickBtn.addEventListener('click', async function () {
       pickBtn.disabled = true
