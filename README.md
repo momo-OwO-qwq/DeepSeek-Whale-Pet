@@ -63,6 +63,10 @@ v0.3.5 新增的数据文件（都在同一配置目录内，权限 0600）：
 | `roles/roles.json` + `roles/<id>.<png\|gif>` | 自定义角色 |
 | `bubble-imgs/bubble-imgs.json` + 同目录图片 | 泡泡图库 |
 | `config.json` 的 `taskEnd` / `menuBtnHide` | 任务结束音 / 隐藏菜单按钮 |
+| `config.json.bak-v*` | 升级时自动备份的旧配置（可删） |
+
+> 升级到新版本首次启动时，会自动把新增配置项补进 `config.json`，
+> **原有数据（API Key、窗口位置、自定义文案等）完整保留**，并先备份一份旧文件。
 
 ## 开发
 

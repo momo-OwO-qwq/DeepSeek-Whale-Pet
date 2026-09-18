@@ -134,6 +134,8 @@ petWin.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
 ### 4.7 主图 / 预警图（可上传，彼此独立）
 
 - 配置：`mainImgPath`（默认 `assets/DSniang1.png`）、`alertImgPath`（默认 `assets/DSniang-sad.png`「委屈」表情）、`alertImage`（默认 false）。
+- **配置结构自动升级**：`lib/config.js` 的 `CONFIG_VERSION` 标记配置结构版本，应用启动时 `migrate()` 会把新版新增字段补进用户的 `config.json`，并**完整保留已有数据**（API Key、窗口位置、自定义文案/音效/形象路径）。只补缺失的键，已存在的键一律不动（含空串 / `false` / `0` 这类合法空值）。首次迁移前备份为 `config.json.bak-v<旧版本>`。
+  > 需要它的原因：`readFile()` 本来就会在内存里补默认值，但磁盘文件一直停在旧结构 —— 用户升级后打开 `config.json` 看不到新字段。
 - **余额减少播报表情**（v0.3.5 新增）：`dropImgPath`（默认 `assets/DSniang-happy.png`「开心」表情）、`dropImage`（默认 true）、`dropImgHoldMs`（默认 2600ms，0 = 不切换）。余额下降被观测到时切到该表情并保持一段时间后自动回落；与任务结束音共用同一个信号。**优先级：预警表情 > 播报表情 > 自定义角色 > 主图**（预警状态不会被播报覆盖）。
 - **上传**：设置窗「选择图片」→ 主进程 `dialog.showOpenDialog`（png/jpg/jpeg/gif/webp）→ **复制**到 `~/.config/whale-pet/images/main.*` 或 `alert.*` → 写回绝对路径到配置（与源文件解耦，源文件移动/删除不影响）；「恢复默认」写回内置相对路径。
 - **触发**：`alertImage === true` 且余额正常（status ok）且 `0 <= 余额 < lowBalanceThreshold` 时使用预警图，否则使用主图 —— 两张图互不干扰、各自独立。
@@ -151,6 +153,7 @@ petWin.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
 > v0.3.5 起 Tab 由 6 个增至 7 个（新增「泡泡」），Tab 条改用
 > `repeat(auto-fit, minmax(56px, 1fr))` 自适应列数；新 Tab 的逻辑在
 > `renderer/menu-v035.js`，与既有 6 个 Tab 的 `menu.js` 分离。
+> 「形象」页术语统一为**主形象 / 预警表情 / 播报表情**（此前残留「预警图 / 日常形象」等旧称）。
 > 详见 [`design-v035.md`](design-v035.md)。
 
 ### 4.9 自定义音效 + 随机台词/动图池 + 去 Emoji

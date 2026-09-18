@@ -150,14 +150,14 @@
       els.dropHoldV.textContent = fmtSeconds(cfg.dropImgHoldMs)
     }
     if (els.dropNote) els.dropNote.textContent = '播报表情：' + imgPathNote(cfg.dropImgPath || '')
-    els.mainNote.textContent = '主图：' + imgPathNote(cfg.mainImgPath || 'assets/DSniang1.png')
-    els.alertNote.textContent = '预警图：' + imgPathNote(cfg.alertImgPath || '') + '（与主图独立）'
+    els.mainNote.textContent = '主形象：' + imgPathNote(cfg.mainImgPath || 'assets/DSniang1.png')
+    els.alertNote.textContent = '预警表情：' + imgPathNote(cfg.alertImgPath || '') + '（与主形象独立）'
     if (cfg.alertImgPath) {
-      els.alertAvail.textContent = '预警换图：余额低于阈值时自动切换为预警图'
+      els.alertAvail.textContent = '预警表情：余额低于阈值时自动切换'
       els.alertAvail.className = 'wm-note wm-note-ok'
       els.alertImage.disabled = false
     } else {
-      els.alertAvail.textContent = '内置预警图缺失（assets/DSniang-sad.png）：请先在下方为预警形象选择图片。'
+      els.alertAvail.textContent = '内置预警表情缺失（assets/DSniang-sad.png）：请先在下方选择图片。'
       els.alertAvail.className = 'wm-note wm-note-warn'
     }
     if (cfg.apiKeySource === 'env') {
@@ -315,7 +315,7 @@
     api.setConfig({ textColorLow: '' }).then(function () { reload() })
   })
 
-  // ---------- 鲸鱼图片：日常形象 / 预警形象 ----------
+  // ---------- 形象图片：主形象 / 预警表情 ----------
   function bindImagePicker(pickBtn, resetBtn, kind, noteEl) {
     pickBtn.addEventListener('click', async function () {
       pickBtn.disabled = true

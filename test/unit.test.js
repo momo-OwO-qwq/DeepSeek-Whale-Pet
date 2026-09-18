@@ -217,8 +217,10 @@ test('config: 消毒 / 原子保存 / 环境变量覆盖', () => {
   const sa2 = config.sanitize({ alertImage: true, alertImgPath: 'assets/warn.png' })
   assert.strictEqual(sa2.alertImage, true)
   assert.strictEqual(sa2.alertImgPath, 'assets/warn.png')
+  // 空白→空串（不是回退默认）：空路径表示「未提供该形象」，用于让用户主动清空。
+  // 若回退默认，用户设成空后会被默认值顶回来，无法表达「不要这张图」。
   const sa3 = config.sanitize({ alertImage: true, alertImgPath: '   ' })
-  assert.strictEqual(sa3.alertImgPath, 'assets/DSniang-sad.png', '空路径回退默认')
+  assert.strictEqual(sa3.alertImgPath, '', '空白路径归一为空串（= 未提供）')
 
   // 余额减少播报形象（v0.3.5 新增）
   const sd = config.sanitize({})
@@ -284,6 +286,95 @@ test('config: 消毒 / 原子保存 / 环境变量覆盖', () => {
   // 配置文件权限 0600（含密钥）
   const mode = fs.statSync(config.CONFIG_FILE).mode & 0o777
   assert.strictEqual(mode, 0o600)
+})
+
+// ---------- 配置迁移（升级补字段，保数据） ----------
+test('migrate: 升级补齐新字段，且完整保留用户数据', () => {
+  // 造一份「旧版本」配置：只有老字段，含用户真实数据
+  const old = {
+    apiKey: 'sk-user-real-key', platformToken: 'tok-abc',
+    scale: 1.3, volume: 0.45, bubbleTextOk: '我的自定义文案',
+    posX: 1234, posY: 567, alertImage: true, idleOpacity: 0.35,
+    theme: 'dark', lowBalanceThreshold: 88,
+  }
+  fs.writeFileSync(config.CONFIG_FILE, JSON.stringify(old, null, 2))
+  const before = fs.readFileSync(config.CONFIG_FILE, 'utf8')
+
+  const r = config.migrate()
+  assert.strictEqual(r.changed, true, '旧结构应触发迁移')
+  assert.ok(r.added.length > 0, '应补齐若干新字段')
+  assert.strictEqual(r.version, config.CONFIG_VERSION)
+
+  const now = JSON.parse(fs.readFileSync(config.CONFIG_FILE, 'utf8'))
+  // 1) 用户数据逐字段原样保留（这是本需求的核心）
+  for (const k of Object.keys(old)) {
+    assert.deepStrictEqual(now[k], old[k], '用户字段 ' + k + ' 必须原样保留')
+  }
+  // 2) 新字段补上
+  for (const k of ['dropImgPath', 'dropImage', 'dropImgHoldMs', 'menuBtnHide', 'alertImgPath']) {
+    assert.ok(Object.prototype.hasOwnProperty.call(now, k), '应补上 ' + k)
+  }
+  // 3) 备份旧文件（首次迁移）
+  assert.strictEqual(r.backedUp, true, '首次迁移应备份')
+  const baks = fs.readdirSync(config.CONFIG_DIR).filter((f) => f.indexOf('config.json.bak-') === 0)
+  assert.ok(baks.length >= 1, '应存在备份文件')
+  assert.strictEqual(fs.readFileSync(path.join(config.CONFIG_DIR, baks[0]), 'utf8'), before,
+    '备份内容应与迁移前完全一致')
+})
+
+test('migrate: 幂等 —— 已是最新结构时不重复写盘', () => {
+  const r1 = config.migrate()
+  assert.strictEqual(r1.changed, false, '已最新则不再改动')
+  const r2 = config.migrate()
+  assert.strictEqual(r2.changed, false)
+})
+
+test('migrate: 用户显式设的空值/0/false 不被默认值顶掉', () => {
+  const tricky = {
+    dropImgPath: '', alertImgPath: '', mainImgPath: '', textColorOk: '',
+    bubbleOn: false, alertImage: false, volume: 0, scale: 0.6,
+    posX: 0, posY: 0, bubbleInterval: 0, configVersion: config.CONFIG_VERSION,
+  }
+  fs.writeFileSync(config.CONFIG_FILE, JSON.stringify(tricky, null, 2))
+  config.migrate()
+  const now = JSON.parse(fs.readFileSync(config.CONFIG_FILE, 'utf8'))
+  for (const k of Object.keys(tricky)) {
+    assert.deepStrictEqual(now[k], tricky[k], k + ' 的空值必须保留（不能被默认值覆盖）')
+  }
+})
+
+test('migrate: 配置文件缺失/损坏时不抛异常', () => {
+  fs.rmSync(config.CONFIG_FILE, { force: true })
+  let r = config.migrate()
+  assert.strictEqual(r.changed, false)
+  assert.strictEqual(r.missingFile, true)
+
+  fs.writeFileSync(config.CONFIG_FILE, '{ 这不是合法 JSON')
+  r = config.migrate()
+  assert.strictEqual(r.changed, false, '损坏文件不应被覆盖（尊重用户数据）')
+  assert.strictEqual(fs.readFileSync(config.CONFIG_FILE, 'utf8'), '{ 这不是合法 JSON',
+    '损坏文件应原样保留，等待用户修复')
+
+  // 恢复一份合法配置，供后续用例使用
+  config.save({ apiKey: 'sk-123', scale: 1.7, volume: 0.5 })
+})
+
+test('migrate: 非对象（数组/字符串）不视为配置，不做迁移', () => {
+  fs.writeFileSync(config.CONFIG_FILE, '[1,2,3]')
+  const r = config.migrate()
+  assert.strictEqual(r.changed, false)
+  assert.strictEqual(r.invalid, true)
+  config.save({ apiKey: 'sk-123' })
+})
+
+test('config: 三张形象图的空串是合法值（未提供该形象）', () => {
+  const s = config.sanitize({ alertImgPath: '', mainImgPath: '', dropImgPath: '' })
+  assert.strictEqual(s.alertImgPath, '', '预警图空串应保留（= 无该形象）')
+  assert.strictEqual(s.mainImgPath, '', '主图空串应保留')
+  assert.strictEqual(s.dropImgPath, '', '播报图空串应保留')
+  // 非空则 trim 后使用
+  const s2 = config.sanitize({ alertImgPath: '  /tmp/w.png  ' })
+  assert.strictEqual(s2.alertImgPath, '/tmp/w.png')
 })
 
 // ---------- 随机台词池（lines.json） ----------

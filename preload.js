@@ -28,7 +28,7 @@ contextBridge.exposeInMainWorld('whaleAPI', {
   dragStart: (offsetX, offsetY, screenX, screenY, fish) => ipcRenderer.invoke('drag:start', { offsetX, offsetY, screenX, screenY, fish }),
   dragDelta: (dx, dy, cx, cy, screenX, screenY) => ipcRenderer.send('drag:delta', { dx, dy, cx, cy, screenX, screenY }),
   dragEnd: () => ipcRenderer.invoke('drag:end'),
-  // 主图 / 预警图上传（复制到配置目录） + 恢复默认
+  // 形象图上传（主形象 / 预警表情 / 播报表情） + 恢复默认
   pickImage: (kind) => ipcRenderer.invoke('image:pick', { kind }),
   resetImage: (kind) => ipcRenderer.invoke('image:reset', { kind }),
   // 自定义音效（按压/松手）上传 + 恢复默认

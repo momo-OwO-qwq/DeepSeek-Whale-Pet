@@ -68,6 +68,20 @@ function main() {
 }
 
 async function onReady() {
+  // 启动即升级配置文件结构：补齐新版新增字段，**完整保留用户已有数据**
+  // （API Key、窗口位置、自定义文案/音效/形象路径等）。失败不影响启动 ——
+  // readFile() 仍会在内存里补默认值，只是磁盘文件保持旧结构。
+  try {
+    const mig = configMod.migrate()
+    if (mig && mig.changed) {
+      const addedTxt = (mig.added && mig.added.length) ? '，补齐 ' + mig.added.length + ' 个新字段：' + mig.added.join(', ') : ''
+      const bakTxt = mig.backedUp ? '（旧配置已备份为 config.json.bak-v' + (mig.fromVersion || 0) + '）' : ''
+      console.log('[whale] 配置已升级到 v' + mig.version + addedTxt + bakTxt)
+    }
+    if (mig && mig.writeError) console.warn('[whale] 配置升级写盘失败（不影响使用）: ' + mig.writeError)
+  } catch (err) {
+    console.warn('[whale] 配置升级异常（忽略）: ' + String((err && err.message) || err))
+  }
   balanceService = new balanceMod.BalanceService()
   linesMod.readPool() // 启动即生成随机台词默认池（~/.config/whale-pet/lines.json，首次）
   createPetWindow()
@@ -706,7 +720,7 @@ function registerIpc() {
     return pos || { x: 0, y: 0 }
   })
 
-  // ---------- 主图 / 预警图上传（复制到配置目录，与源文件解耦）----------
+  // ---------- 形象图上传：主形象 / 预警表情 / 播报表情（复制到配置目录，与源文件解耦）----------
   // 三类形象各自的「恢复默认」内置素材（随包 610×610 透明 cut-out）
   function imagePatchFor(kind) {
     if (kind === 'alert') return { alertImgPath: 'assets/DSniang-sad.png' }
