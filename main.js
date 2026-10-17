@@ -233,6 +233,9 @@ function createMenuWindow(initX, initY) {
 function showMenuWindow() {
   if (!menuWin || menuWin.isDestroyed()) return
   try {
+    // 兜底：部分 WM 会在显示时按 size hints 复算内容区（表现为「打开设置后
+    // 内容被压扁 / 下半截空白」）。每次显示前把内容尺寸钉回设计值。
+    menuWin.setContentSize(MENU_W, MENU_H)
     menuWin.center()
     menuWin.show()
     menuWin.focus()
