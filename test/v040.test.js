@@ -54,11 +54,13 @@ test('frame: 内置框共 5 个，id 稳定', () => {
   assert.deepStrictEqual(ids, ['classic', 'round', 'note', 'dashed', 'glass'])
 })
 
-test('frame: 经典框文字中心 43.4% / 35.5%（向左上平移，对齐椭圆圆心）', () => {
+test('frame: 经典框文字中心与框盒中心重合（44% / 35.25%）', () => {
   const eff = frame.effective({})
   assert.strictEqual(eff.kind, 'classic')
-  assert.strictEqual(Math.round((eff.safe.x + eff.safe.w / 2) * 10000) / 100, 43.4)
-  assert.strictEqual(Math.round((eff.safe.y + eff.safe.h / 2) * 10000) / 100, 35.5)
+  // 文字中心必须等于框盒中心（框里严格居中）
+  const box = eff.box
+  assert.strictEqual(+(eff.safe.x + eff.safe.w / 2).toFixed(4), +(box.x + box.w / 2).toFixed(4))
+  assert.strictEqual(+(eff.safe.y + eff.safe.h / 2).toFixed(4), +(box.y + box.h / 2).toFixed(4))
 })
 
 test('frame: 所有内置框共用同一个框盒（换框不换位置）', () => {

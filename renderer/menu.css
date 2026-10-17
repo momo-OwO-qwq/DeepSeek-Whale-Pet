@@ -421,9 +421,13 @@ input, textarea, select,
 }
 
 .wm-check-box {
-  flex: 0 0 auto;
+  /* 复选框永远不许被 flex/grid 压扁：显式给定 flex basis 与最小尺寸 */
+  flex: 0 0 18px;
   width: 18px;
   height: 18px;
+  min-width: 18px;
+  min-height: 18px;
+  box-sizing: border-box;
   border: 1.5px solid var(--wm-border-ctl);
   border-radius: var(--wm-r-xs);
   background: var(--wm-surface-2);
