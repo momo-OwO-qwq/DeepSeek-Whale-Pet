@@ -72,15 +72,15 @@
   // ---------- Tab 切换 ----------
   var tabs = document.querySelectorAll('.wm-tab')
   function switchTab(page) {
+    // 旧实现把「显示页面」写在了 tabs 循环里（每轮都隐藏全部再显示当前 tab 的页），
+    // 结果最后一个 tab 决定最终页面，且高亮与内容可能不一致（出现过两个 tab 同时高亮）。
+    // 正确做法：一轮循环里同时处理「高亮」和「对应页面显隐」。
     for (var i = 0; i < tabs.length; i++) {
       var on = tabs[i].getAttribute('data-page') === page
       tabs[i].classList.toggle('wm-tab-on', on)
       tabs[i].setAttribute('aria-selected', on ? 'true' : 'false')
-      var el = $('page-' + page)
-      for (var j = 0; j < tabs.length; j++) {
-        $('page-' + tabs[j].getAttribute('data-page')).hidden = true
-      }
-      if (el) el.hidden = false
+      var el = $('page-' + tabs[i].getAttribute('data-page'))
+      if (el) el.hidden = !on
     }
   }
   for (var i = 0; i < tabs.length; i++) {
@@ -90,10 +90,26 @@
   }
   switchTab('account')
 
+  // 统一保存出口：主进程写盘失败会返回 null，这里必须让用户看见
+  // （旧版所有 setConfig 都是裸 .then，失败只有一个看不见的 saveError 字段）
+  function saveConfig(patch) {
+    return Promise.resolve(api.setConfig(patch)).then(function (cfg) {
+      if (!cfg) {
+        showSaveError('配置文件不可写')
+        return null
+      }
+      showSaveError('')
+      return cfg
+    }).catch(function (err) {
+      showSaveError(String((err && err.message) || err))
+      return null
+    })
+  }
+
   var saveTimer = null
   function debounceSave(patch, ms) {
     if (saveTimer) clearTimeout(saveTimer)
-    saveTimer = setTimeout(function () { api.setConfig(patch) }, ms || 150)
+    saveTimer = setTimeout(function () { saveConfig(patch) }, ms || 150)
   }
 
   // ---------- 主题（跟随系统） ----------
@@ -214,7 +230,7 @@
     input.addEventListener('change', function () {
       var patch = {}
       patch[patchKey] = input.value.trim()
-      api.setConfig(patch).then(function () { reload() })
+      saveConfig(patch).then(function () { reload() })
     })
   }
   bindSecret(els.apiKey, els.apiKeyEye, 'apiKey')
@@ -222,16 +238,16 @@
 
   // ---------- 选择/开关 ----------
   els.theme.addEventListener('change', function () {
-    api.setConfig({ theme: els.theme.value }).then(function (cfg) { applyTheme(cfg || { theme: els.theme.value }) })
+    saveConfig({ theme: els.theme.value }).then(function (cfg) { applyTheme(cfg || { theme: els.theme.value }) })
   })
-  els.usage.addEventListener('change', function () { api.setConfig({ usageMode: els.usage.value }) })
-  els.sound.addEventListener('change', function () { api.setConfig({ soundSet: els.sound.value }) })
-  els.peak.addEventListener('change', function () { api.setConfig({ peakMode: els.peak.value }) })
-  els.peakText.addEventListener('change', function () { api.setConfig({ peakText: els.peakText.checked }) })
-  els.bubble.addEventListener('change', function () { api.setConfig({ bubbleOn: els.bubble.checked }) })
-  els.idleFade.addEventListener('change', function () { api.setConfig({ idleFade: els.idleFade.checked }) })
-  els.autostart.addEventListener('change', function () { api.setConfig({ autostart: els.autostart.checked }) })
-  els.alertImage.addEventListener('change', function () { api.setConfig({ alertImage: els.alertImage.checked }) })
+  els.usage.addEventListener('change', function () { saveConfig({ usageMode: els.usage.value }) })
+  els.sound.addEventListener('change', function () { saveConfig({ soundSet: els.sound.value }) })
+  els.peak.addEventListener('change', function () { saveConfig({ peakMode: els.peak.value }) })
+  els.peakText.addEventListener('change', function () { saveConfig({ peakText: els.peakText.checked }) })
+  els.bubble.addEventListener('change', function () { saveConfig({ bubbleOn: els.bubble.checked }) })
+  els.idleFade.addEventListener('change', function () { saveConfig({ idleFade: els.idleFade.checked }) })
+  els.autostart.addEventListener('change', function () { saveConfig({ autostart: els.autostart.checked }) })
+  els.alertImage.addEventListener('change', function () { saveConfig({ alertImage: els.alertImage.checked }) })
 
   // ---------- 余额减少播报形象 ----------
   function fmtSeconds(ms) {
@@ -240,7 +256,7 @@
     return (n / 1000).toFixed(1) + ' 秒'
   }
   if (els.dropImage) {
-    els.dropImage.addEventListener('change', function () { api.setConfig({ dropImage: els.dropImage.checked }) })
+    els.dropImage.addEventListener('change', function () { saveConfig({ dropImage: els.dropImage.checked }) })
   }
   if (els.dropHold) {
     els.dropHold.addEventListener('input', function () {
@@ -269,50 +285,50 @@
   els.refresh.addEventListener('change', function () {
     var v = Math.round(Number(els.refresh.value) || 60)
     els.refresh.value = String(v)
-    api.setConfig({ refreshInterval: v })
+    saveConfig({ refreshInterval: v })
   })
   els.bubbleInterval.addEventListener('change', function () {
     var v = Math.round(Number(els.bubbleInterval.value) || 0)
     els.bubbleInterval.value = String(v)
-    api.setConfig({ bubbleInterval: v })
+    saveConfig({ bubbleInterval: v })
   })
   els.threshold.addEventListener('change', function () {
     var v = Number(els.threshold.value)
     if (!isFinite(v) || v < 0) v = 10
     els.threshold.value = String(v)
-    api.setConfig({ lowBalanceThreshold: v })
+    saveConfig({ lowBalanceThreshold: v })
   })
 
   // ---------- 峰谷自定义文案（留空 = 用内置/峰谷模式） ----------
   els.peakOff.addEventListener('change', function () {
     els.peakOff.value = els.peakOff.value.slice(0, 12)
-    api.setConfig({ peakTextOff: els.peakOff.value.trim() })
+    saveConfig({ peakTextOff: els.peakOff.value.trim() })
   })
   els.peakOn.addEventListener('change', function () {
     els.peakOn.value = els.peakOn.value.slice(0, 12)
-    api.setConfig({ peakTextOn: els.peakOn.value.trim() })
+    saveConfig({ peakTextOn: els.peakOn.value.trim() })
   })
 
   // ---------- 气泡文案 + 颜色 ----------
   els.textOk.addEventListener('change', function () {
     els.textOk.value = els.textOk.value.slice(0, 20)
-    api.setConfig({ bubbleTextOk: els.textOk.value.trim() })
+    saveConfig({ bubbleTextOk: els.textOk.value.trim() })
   })
   els.textLow.addEventListener('change', function () {
     els.textLow.value = els.textLow.value.slice(0, 20)
-    api.setConfig({ bubbleTextLow: els.textLow.value.trim() })
+    saveConfig({ bubbleTextLow: els.textLow.value.trim() })
   })
   els.colorOk.addEventListener('input', function () {
-    api.setConfig({ textColorOk: els.colorOk.value })
+    saveConfig({ textColorOk: els.colorOk.value })
   })
   els.colorLow.addEventListener('input', function () {
-    api.setConfig({ textColorLow: els.colorLow.value })
+    saveConfig({ textColorLow: els.colorLow.value })
   })
   els.colorOkReset.addEventListener('click', function () {
-    api.setConfig({ textColorOk: '' }).then(function () { reload() })
+    saveConfig({ textColorOk: '' }).then(function () { reload() })
   })
   els.colorLowReset.addEventListener('click', function () {
-    api.setConfig({ textColorLow: '' }).then(function () { reload() })
+    saveConfig({ textColorLow: '' }).then(function () { reload() })
   })
 
   // ---------- 形象图片：主形象 / 预警表情 ----------

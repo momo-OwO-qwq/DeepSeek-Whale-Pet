@@ -151,8 +151,11 @@ html, body {
 
 .wp-text {
   position: absolute;
-  left: 44.25%;
-  top: 38%;
+  /* v0.4.0：内容按「安全区」中心定位（--wp-safe-* 由 pet.js 按泡泡框注入）。
+     默认值与经典框一致（44.25% / 38%），换框后自动内缩，不压边框和尾巴。 */
+  left: calc(var(--wp-safe-x, 15.5%) + var(--wp-safe-w, 57.5%) / 2);
+  top: calc(var(--wp-safe-y, 13%) + var(--wp-safe-h, 50%) / 2);
+  max-width: var(--wp-safe-w, 57.5%);
   transform: translate(-50%, -50%);
   text-align: center;
   color: #536ba9;
@@ -215,9 +218,10 @@ html, body {
 /* 铺满气泡画布；行纵向堆叠，逐行错峰进入 */
 .wp-mods {
   position: absolute;
-  left: 44.25%;
-  top: 38%;
-  width: 72%;
+  left: calc(var(--wp-safe-x, 15.5%) + var(--wp-safe-w, 57.5%) / 2);
+  top: calc(var(--wp-safe-y, 13%) + var(--wp-safe-h, 50%) / 2);
+  width: var(--wp-mods-w, 72%);
+  max-width: var(--wp-safe-w, 57.5%);
   transform: translate(-50%, -50%);
   display: none;
   flex-direction: column;
@@ -251,6 +255,9 @@ html, body {
 
 .wp-mod {
   display: inline-block;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  word-break: break-word;
   line-height: 1.15;
   white-space: nowrap;
   font-weight: 400;
@@ -322,3 +329,90 @@ html, body {
   .wp-mod[class*="wp-bgrgb-"] { animation: none; }
   .wp-modrow { opacity: 1; transform: none; animation: none; }
 }
+
+/* ==========================================================================
+   v0.4.0 自定义泡泡框
+   · .wp-frame 是整层容器（铺满 1026×700 泡泡画布），默认不显示
+   · 内置框（round/note/dashed/glass）由 .wp-frame-card 用 CSS 画，零素材
+   · 用户图片框用 .wp-frame-img 拉伸铺满；mirror 时水平翻转
+   · 启用非经典框时隐藏原有 SVG 泡泡（classic 保留原样，保证老用户零变化）
+   ========================================================================== */
+.wp-frame {
+  position: absolute;
+  inset: 0;
+  display: none;
+  pointer-events: none;
+  z-index: 0;
+}
+.wp-bubble.wp-frame-on.wp-bubble-open .wp-frame { display: block; }
+.wp-bubble.wp-frame-on > svg { display: none; }
+
+.wp-frame-img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: fill;
+  display: none;
+}
+.wp-frame-img.wp-frame-flipped { transform: scaleX(-1); }
+
+.wp-frame-card {
+  position: absolute;
+  display: none;
+  border-radius: calc(var(--wp-u) * 90);
+  border: calc(var(--wp-u) * 14) solid #203170;
+  background: #ffffff;
+  box-sizing: border-box;
+  box-shadow: 0 calc(var(--wp-u) * 18) calc(var(--wp-u) * 40) rgba(20, 40, 90, .18);
+}
+/* 尾巴：卡片底部的小三角，方向跟随 tail */
+.wp-frame-card::after {
+  content: '';
+  position: absolute;
+  bottom: calc(var(--wp-u) * -34);
+  width: 0;
+  height: 0;
+  border-left: calc(var(--wp-u) * 30) solid transparent;
+  border-right: calc(var(--wp-u) * 30) solid transparent;
+  border-top: calc(var(--wp-u) * 40) solid #203170;
+}
+.wp-tail-left .wp-frame-card::after { left: 12%; }
+.wp-tail-right .wp-frame-card::after { right: 12%; }
+.wp-bubble:not(.wp-tail-left):not(.wp-tail-right) .wp-frame-card::after { display: none; }
+
+/* 便签：无边框 + 纸角 */
+.wp-frame-note .wp-frame-card {
+  border: 0;
+  border-radius: calc(var(--wp-u) * 18);
+  background: #fffbe8;
+  box-shadow: 0 calc(var(--wp-u) * 10) calc(var(--wp-u) * 26) rgba(120, 95, 20, .22);
+}
+.wp-frame-note .wp-frame-card::after {
+  border-top-color: #fffbe8;
+  bottom: calc(var(--wp-u) * -28);
+}
+
+/* 虚线框 */
+.wp-frame-dashed .wp-frame-card {
+  border-style: dashed;
+  border-width: calc(var(--wp-u) * 10);
+  border-radius: calc(var(--wp-u) * 60);
+  background: rgba(255, 255, 255, .92);
+  box-shadow: none;
+}
+
+/* 毛玻璃 */
+.wp-frame-glass .wp-frame-card {
+  border-width: calc(var(--wp-u) * 10);
+  border-color: rgba(255, 255, 255, .75);
+  border-radius: calc(var(--wp-u) * 80);
+  background: rgba(255, 255, 255, .62);
+  backdrop-filter: blur(calc(var(--wp-u) * 16));
+  box-shadow: 0 calc(var(--wp-u) * 16) calc(var(--wp-u) * 44) rgba(30, 50, 100, .20);
+}
+
+/* 换框时内容跟着淡入，避免「文字先于边框出现」 */
+.wp-bubble.wp-frame-on .wp-text,
+.wp-bubble.wp-frame-on .wp-mods { transition: opacity .18s ease; }
+

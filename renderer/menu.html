@@ -9,15 +9,13 @@
 <body>
 <div class="wm-app">
 
-  <!-- ===================== Tab 条（六等分分段控件，不换行） ===================== -->
+  <!-- ===================== Tab 条（五等分：账号 / 数据 / 外观 / 气泡 / 声音） ===================== -->
   <nav class="wm-tabs" role="tablist" aria-label="设置分类">
-    <button class="wm-tab wm-tab-on" id="tab-account" data-page="account" role="tab" aria-controls="page-account">密钥</button>
+    <button class="wm-tab wm-tab-on" id="tab-account" data-page="account" role="tab" aria-controls="page-account">账号</button>
     <button class="wm-tab" id="tab-data" data-page="data" role="tab" aria-controls="page-data">数据</button>
-    <button class="wm-tab" id="tab-look" data-page="look" role="tab" aria-controls="page-look">界面</button>
-    <button class="wm-tab" id="tab-text" data-page="text" role="tab" aria-controls="page-text">文案</button>
-    <button class="wm-tab" id="tab-sound" data-page="sound"   role="tab" aria-controls="page-sound">音效</button>
-    <button class="wm-tab" id="tab-bubble" data-page="bubble" role="tab" aria-controls="page-bubble">泡泡</button>
-    <button class="wm-tab" id="tab-media" data-page="media"   role="tab" aria-controls="page-media">形象</button>
+    <button class="wm-tab" id="tab-look" data-page="look" role="tab" aria-controls="page-look">外观</button>
+    <button class="wm-tab" id="tab-bubble" data-page="bubble" role="tab" aria-controls="page-bubble">气泡</button>
+    <button class="wm-tab" id="tab-sound" data-page="sound" role="tab" aria-controls="page-sound">声音</button>
   </nav>
 
   <!-- ===================== 滚动内容区 ===================== -->
@@ -216,153 +214,6 @@
 
         <div class="wm-note wm-note-muted">高峰为每日 9:00–12:00 与 14:00–18:00（北京时间）；周末全天按低谷计价。</div>
       </div>
-    </section>
-
-    <!-- ================= 文案 ================= -->
-    <section class="wm-page" id="page-text" role="tabpanel" aria-labelledby="tab-text" hidden>
-      <div class="wm-group">
-        <h2 class="wm-group-title">气泡文字</h2>
-        <div class="wm-field">
-          <span class="wm-label">余额充足</span>
-          <div class="wm-field-row">
-            <input id="wm-text-ok" type="text" maxlength="20" placeholder="限 20 字符">
-            <input id="wm-color-ok" type="color" title="余额充足时的文字颜色">
-            <button id="wm-color-ok-reset" class="wm-mini" type="button">默认</button>
-          </div>
-        </div>
-        <div class="wm-field">
-          <span class="wm-label">余额预警</span>
-          <div class="wm-field-row">
-            <input id="wm-text-low" type="text" maxlength="20" placeholder="限 20 字符">
-            <input id="wm-color-low" type="color" title="余额预警时的文字颜色">
-            <button id="wm-color-low-reset" class="wm-mini" type="button">默认</button>
-          </div>
-        </div>
-        <div class="wm-note wm-note-muted">气泡首行文字与颜色。文字超过 20 字会自动截断；颜色点右侧色块修改，「默认」恢复内置配色。</div>
-      </div>
-
-      <div class="wm-group">
-        <h2 class="wm-group-title">随机台词</h2>
-        <div class="wm-field">
-          <span class="wm-label">台词间隔</span>
-          <div class="wm-field-row">
-            <input id="wm-bubble-interval" type="number" min="0" step="1">
-            <span class="wm-unit">秒</span>
-          </div>
-          <div class="wm-note wm-note-muted">每隔这段时间自动弹一句随机台词；填 0 关闭。</div>
-        </div>
-
-        <div class="wm-actions">
-          <button id="wm-custom-reload" class="wm-btn" type="button">重新载入</button>
-          <button id="wm-custom-open" class="wm-btn" type="button">打开文件</button>
-        </div>
-        <div id="wm-custom-note" class="wm-note wm-note-muted">台词存在 lines.json，改完点「重新载入」即可生效，无需重启。</div>
-      </div>
-    </section>
-
-    <!-- ================= 音效 ================= -->
-    <section class="wm-page" id="page-sound" role="tabpanel" aria-labelledby="tab-sound" hidden>
-      <div class="wm-group">
-        <h2 class="wm-group-title">音效与音量</h2>
-        <div class="wm-grid-2">
-          <div class="wm-field">
-            <span class="wm-label">方案</span>
-            <select id="wm-sound">
-              <option value="duck">音效 1</option>
-              <option value="fx1">音效 2</option>
-            </select>
-          </div>
-          <div class="wm-field">
-            <span class="wm-label">音量</span>
-            <div class="wm-field-row">
-              <input id="wm-vol" class="wm-range" type="range" min="0" max="1" step="0.05">
-              <span id="wm-vol-v" class="wm-val"></span>
-            </div>
-          </div>
-        </div>
-        <div class="wm-note wm-note-muted">音量拉到 0 即静音。点鲸鱼时会播放按压与松手两个音效。</div>
-      </div>
-
-      <div class="wm-group">
-        <h2 class="wm-group-title">自定义音源</h2>
-        <div class="wm-field">
-          <span class="wm-label">按压音效</span>
-          <div class="wm-actions">
-            <button id="wm-press-pick" class="wm-btn" type="button">选择文件</button>
-            <button id="wm-press-reset" class="wm-btn wm-btn-danger" type="button">恢复默认</button>
-          </div>
-        </div>
-        <div class="wm-field">
-          <span class="wm-label">松手音效</span>
-          <div class="wm-actions">
-            <button id="wm-release-pick" class="wm-btn" type="button">选择文件</button>
-            <button id="wm-release-reset" class="wm-btn wm-btn-danger" type="button">恢复默认</button>
-          </div>
-        </div>
-
-        <!-- 「打开目录」原本嵌在 wm-sound-note 里，而 JS 会写 soundNote.textContent，
-             一上传音效就会把这个按钮抹掉 —— 移出到独立操作行修掉该隐患 -->
-        <div class="wm-actions">
-          <button id="wm-sounds-open" class="wm-btn" type="button">打开音效文件夹</button>
-        </div>
-        <div id="wm-sound-note" class="wm-note wm-note-muted">自定义音源会复制到配置目录，并优先于上方方案。</div>
-      </div>
-    </section>
-
-    <!-- ================= 图片 ================= -->
-    <!-- ================= 自定义泡泡（v0.3.5） ================= -->
-    <section class="wm-page" id="page-bubble" role="tabpanel" aria-labelledby="tab-bubble" hidden>
-      <div class="wm-group">
-        <h2 class="wm-group-title">点击序列</h2>
-        <div class="wm-note wm-note-muted">
-          按顺序排列「点击鲸鱼依次看到什么」。没有条目时使用内置的余额气泡与随机台词。
-        </div>
-
-        <div class="wm-field">
-          <span class="wm-label">点按角色推进队列</span>
-          <label class="wm-check" title="开启后点一下鲸鱼＝往后推进一项；关闭则点回第 1 项">
-            <input id="wm-tapadvance" type="checkbox">
-            <span class="wm-check-box" aria-hidden="true"></span>
-            <span>点一下往后翻一项（不回头）</span>
-          </label>
-          <div class="wm-note wm-note-muted">
-            关闭时：点鲸鱼回到第 1 项。开启时：走到最后一项再点则收起，下次从第 1 项开始。
-          </div>
-        </div>
-
-        <div class="wm-field">
-          <span class="wm-label">序列条目</span>
-          <div id="wm-bub-list" class="wm-bub-list"></div>
-          <div class="wm-actions">
-            <button id="wm-bub-add-normal" class="wm-btn" type="button">＋ 默认余额泡</button>
-            <button id="wm-bub-add-random" class="wm-btn" type="button">＋ 随机台词泡</button>
-            <button id="wm-bub-add-custom" class="wm-btn" type="button">＋ 自定义模块泡</button>
-          </div>
-        </div>
-      </div>
-
-      <div class="wm-group">
-        <h2 class="wm-group-title">模块编辑</h2>
-        <div id="wm-bub-editor" class="wm-bub-editor">
-          <div class="wm-note wm-note-muted">在上面选中一个「自定义模块泡」后即可编辑。</div>
-        </div>
-      </div>
-
-      <div class="wm-group">
-        <h2 class="wm-group-title">预览</h2>
-        <div class="wm-bub-preview" id="wm-bub-preview">
-          <div class="wm-note wm-note-muted">预览会按当前序列显示第 1 项的效果。</div>
-        </div>
-        <div class="wm-actions">
-          <button id="wm-bub-save" class="wm-btn wm-btn-primary" type="button">保存泡泡配置</button>
-          <button id="wm-bub-reload" class="wm-btn" type="button">放弃修改</button>
-        </div>
-        <div id="wm-bub-status" class="wm-note"></div>
-      </div>
-    </section>
-
-
-    <section class="wm-page" id="page-media" role="tabpanel" aria-labelledby="tab-media" hidden>
       <div class="wm-group">
         <h2 class="wm-group-title">预警表情</h2>
         <div class="wm-field">
@@ -436,7 +287,200 @@
           <button id="wm-images-open" class="wm-btn" type="button">打开图片文件夹</button>
         </div>
       </div>
+
+    <!-- ================= 音效 ================= -->
     </section>
+
+
+    <section class="wm-page" id="page-sound" role="tabpanel" aria-labelledby="tab-sound" hidden>
+      <div class="wm-group">
+        <h2 class="wm-group-title">音效与音量</h2>
+        <div class="wm-grid-2">
+          <div class="wm-field">
+            <span class="wm-label">方案</span>
+            <select id="wm-sound">
+              <option value="duck">音效 1</option>
+              <option value="fx1">音效 2</option>
+            </select>
+          </div>
+          <div class="wm-field">
+            <span class="wm-label">音量</span>
+            <div class="wm-field-row">
+              <input id="wm-vol" class="wm-range" type="range" min="0" max="1" step="0.05">
+              <span id="wm-vol-v" class="wm-val"></span>
+            </div>
+          </div>
+        </div>
+        <div class="wm-note wm-note-muted">音量拉到 0 即静音。点鲸鱼时会播放按压与松手两个音效。</div>
+      </div>
+
+      <div class="wm-group">
+        <h2 class="wm-group-title">自定义音源</h2>
+        <div class="wm-field">
+          <span class="wm-label">按压音效</span>
+          <div class="wm-actions">
+            <button id="wm-press-pick" class="wm-btn" type="button">选择文件</button>
+            <button id="wm-press-reset" class="wm-btn wm-btn-danger" type="button">恢复默认</button>
+          </div>
+        </div>
+        <div class="wm-field">
+          <span class="wm-label">松手音效</span>
+          <div class="wm-actions">
+            <button id="wm-release-pick" class="wm-btn" type="button">选择文件</button>
+            <button id="wm-release-reset" class="wm-btn wm-btn-danger" type="button">恢复默认</button>
+          </div>
+        </div>
+
+        <!-- 「打开目录」原本嵌在 wm-sound-note 里，而 JS 会写 soundNote.textContent，
+             一上传音效就会把这个按钮抹掉 —— 移出到独立操作行修掉该隐患 -->
+        <div class="wm-actions">
+          <button id="wm-sounds-open" class="wm-btn" type="button">打开音效文件夹</button>
+        </div>
+        <div id="wm-sound-note" class="wm-note wm-note-muted">自定义音源会复制到配置目录，并优先于上方方案。</div>
+      </div>
+      <div class="wm-group" data-collapsible>
+        <h2 class="wm-group-title">音效通道</h2>
+        <div class="wm-note wm-note-muted">四个通道各自开关与音量；通道音量与上面的总音量相乘，默认只开「按压」。</div>
+        <div id="wm-ch-list" class="wm-ch-list"></div>
+        <div id="wm-ch-status" class="wm-note"></div>
+      </div>
+    </section>
+
+    <!-- ================= 图片 ================= -->
+    <!-- ================= 自定义泡泡（v0.3.5） ================= -->
+    <section class="wm-page" id="page-bubble" role="tabpanel" aria-labelledby="tab-bubble" hidden>
+      <div class="wm-group">
+        <h2 class="wm-group-title">气泡文字</h2>
+        <div class="wm-field">
+          <span class="wm-label">余额充足</span>
+          <div class="wm-field-row">
+            <input id="wm-text-ok" type="text" maxlength="20" placeholder="限 20 字符">
+            <input id="wm-color-ok" type="color" title="余额充足时的文字颜色">
+            <button id="wm-color-ok-reset" class="wm-mini" type="button">默认</button>
+          </div>
+        </div>
+        <div class="wm-field">
+          <span class="wm-label">余额预警</span>
+          <div class="wm-field-row">
+            <input id="wm-text-low" type="text" maxlength="20" placeholder="限 20 字符">
+            <input id="wm-color-low" type="color" title="余额预警时的文字颜色">
+            <button id="wm-color-low-reset" class="wm-mini" type="button">默认</button>
+          </div>
+        </div>
+        <div class="wm-note wm-note-muted">气泡首行文字与颜色。文字超过 20 字会自动截断；颜色点右侧色块修改，「默认」恢复内置配色。</div>
+      </div>
+
+      <div class="wm-group">
+        <h2 class="wm-group-title">随机台词</h2>
+        <div class="wm-field">
+          <span class="wm-label">台词间隔</span>
+          <div class="wm-field-row">
+            <input id="wm-bubble-interval" type="number" min="0" step="1">
+            <span class="wm-unit">秒</span>
+          </div>
+          <div class="wm-note wm-note-muted">每隔这段时间自动弹一句随机台词；填 0 关闭。</div>
+        </div>
+
+        <div class="wm-actions">
+          <button id="wm-custom-reload" class="wm-btn" type="button">重新载入</button>
+          <button id="wm-custom-open" class="wm-btn" type="button">打开文件</button>
+        </div>
+        <div id="wm-custom-note" class="wm-note wm-note-muted">台词存在 lines.json，改完点「重新载入」即可生效，无需重启。</div>
+      </div>
+      <div class="wm-group">
+        <h2 class="wm-group-title">点击序列</h2>
+        <div class="wm-note wm-note-muted">
+          按顺序排列「点击鲸鱼依次看到什么」。没有条目时使用内置的余额气泡与随机台词。
+        </div>
+
+        <div class="wm-field">
+          <span class="wm-label">点按角色推进队列</span>
+          <label class="wm-check" title="开启后点一下鲸鱼＝往后推进一项；关闭则点回第 1 项">
+            <input id="wm-tapadvance" type="checkbox">
+            <span class="wm-check-box" aria-hidden="true"></span>
+            <span>点一下往后翻一项（不回头）</span>
+          </label>
+          <div class="wm-note wm-note-muted">
+            关闭时：点鲸鱼回到第 1 项。开启时：走到最后一项再点则收起，下次从第 1 项开始。
+          </div>
+        </div>
+
+        <div class="wm-field">
+          <span class="wm-label">序列条目</span>
+          <div id="wm-bub-list" class="wm-bub-list"></div>
+          <div class="wm-actions">
+            <button id="wm-bub-add-normal" class="wm-btn" type="button">＋ 默认余额泡</button>
+            <button id="wm-bub-add-random" class="wm-btn" type="button">＋ 随机台词泡</button>
+            <button id="wm-bub-add-custom" class="wm-btn" type="button">＋ 自定义模块泡</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="wm-group">
+        <h2 class="wm-group-title">模块编辑</h2>
+        <div id="wm-bub-editor" class="wm-bub-editor">
+          <div class="wm-note wm-note-muted">在上面选中一个「自定义模块泡」后即可编辑。</div>
+        </div>
+      </div>
+
+      <div class="wm-group" data-collapsible>
+        <h2 class="wm-group-title">泡泡框</h2>
+        <div class="wm-note wm-note-muted">选一个框，或上传自己的图片框。框只改外观，不动序列内容。</div>
+        <div id="wm-frame-list" class="wm-frame-list"></div>
+        <div class="wm-actions">
+          <button id="wm-frame-upload" class="wm-btn" type="button">上传图片框</button>
+          <button id="wm-frame-delete" class="wm-btn wm-btn-danger" type="button">删除选中框</button>
+        </div>
+        <div id="wm-frame-status" class="wm-note"></div>
+
+        <div class="wm-field">
+          <span class="wm-label">左右版</span>
+          <label class="wm-check" title="水平翻转框与内容安全区（尾巴换边）">
+            <input id="wm-frame-mirror" type="checkbox">
+            <span class="wm-check-box" aria-hidden="true"></span>
+            <span>镜像（尾巴换边）</span>
+          </label>
+        </div>
+
+        <div class="wm-field">
+          <span class="wm-label">内容安全区</span>
+          <div class="wm-grid-2">
+            <div class="wm-field">
+              <span class="wm-label">左边距</span>
+              <div class="wm-field-row"><input id="wm-safe-x" class="wm-range" type="range" min="0" max="80" step="1"><span id="wm-safe-x-v" class="wm-val"></span></div>
+            </div>
+            <div class="wm-field">
+              <span class="wm-label">上边距</span>
+              <div class="wm-field-row"><input id="wm-safe-y" class="wm-range" type="range" min="0" max="80" step="1"><span id="wm-safe-y-v" class="wm-val"></span></div>
+            </div>
+            <div class="wm-field">
+              <span class="wm-label">宽度</span>
+              <div class="wm-field-row"><input id="wm-safe-w" class="wm-range" type="range" min="20" max="100" step="1"><span id="wm-safe-w-v" class="wm-val"></span></div>
+            </div>
+            <div class="wm-field">
+              <span class="wm-label">高度</span>
+              <div class="wm-field-row"><input id="wm-safe-h" class="wm-range" type="range" min="20" max="100" step="1"><span id="wm-safe-h-v" class="wm-val"></span></div>
+            </div>
+          </div>
+          <div class="wm-note wm-note-muted">安全区决定文字/模块能占的位置，避免压到边框和尾巴；改完立刻在鲸鱼身上生效。</div>
+          <div class="wm-actions"><button id="wm-safe-reset" class="wm-btn" type="button">跟随框默认</button></div>
+        </div>
+      </div>
+
+      <div class="wm-group">
+        <h2 class="wm-group-title">预览</h2>
+        <div class="wm-bub-preview" id="wm-bub-preview">
+          <div class="wm-note wm-note-muted">预览会按当前序列显示第 1 项的效果。</div>
+        </div>
+        <div class="wm-actions">
+          <button id="wm-bub-save" class="wm-btn wm-btn-primary" type="button">保存泡泡配置</button>
+          <button id="wm-bub-reload" class="wm-btn" type="button">放弃修改</button>
+        </div>
+        <div id="wm-bub-status" class="wm-note"></div>
+      </div>
+    </section>
+
+
 
   </div><!-- /.wm-body -->
 
@@ -449,5 +493,6 @@
 </div><!-- /.wm-app -->
 <script src="menu-v035.js"></script>
 <script src="menu.js"></script>
+<script src="menu-v040.js"></script>
 </body>
 </html>

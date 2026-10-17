@@ -85,7 +85,8 @@ async function onReady() {
   balanceService = new balanceMod.BalanceService()
   linesMod.readPool() // 启动即生成随机台词默认池（~/.config/whale-pet/lines.json，首次）
   createPetWindow()
-  createMenuWindow() // 隐藏创建；打开时由 openMenu() 居中
+  // 设置窗改为「首次打开时创建」：省掉启动时的一个渲染进程（约 70–90MB），
+  // 也避免菜单页在用户还没打开设置时就跑完整个初始化。
   applyNativeTheme()
   setupTray()
   setupShortcuts()
@@ -220,15 +221,28 @@ function createMenuWindow(initX, initY) {
   menuWin.on('closed', () => { menuWin = null })
 }
 
-function openMenu() {
-  // 用户直接叉掉窗口后 menuWin 为 null —— 按需重建
-  if (!menuWin || menuWin.isDestroyed()) createMenuWindow()
+// 居中显示设置窗：大尺寸鲸鱼不再遮挡设置窗（用户反馈）
+function showMenuWindow() {
   if (!menuWin || menuWin.isDestroyed()) return
-  // 居中打开：大尺寸鲸鱼不再遮挡设置窗（用户反馈）
-  const d = (petWin && !petWin.isDestroyed()) ? screen.getDisplayMatching(petWin.getBounds()) : screen.getPrimaryDisplay()
-  menuWin.center()
-  menuWin.show()
-  menuWin.focus()
+  try {
+    menuWin.center()
+    menuWin.show()
+    menuWin.focus()
+  } catch (err) { /* 窗口正在销毁，忽略 */ }
+}
+
+function openMenu() {
+  // 首次打开才创建（懒创建）；用户叉掉窗口后 menuWin 为 null —— 同样按需重建
+  if (menuWin && !menuWin.isDestroyed()) {
+    if (menuWin.webContents.isLoading()) menuWin.once('ready-to-show', showMenuWindow)
+    else showMenuWindow()
+    return
+  }
+  createMenuWindow()
+  if (menuWin && !menuWin.isDestroyed()) {
+    // 等首帧再显示，避免白屏闪烁
+    menuWin.once('ready-to-show', showMenuWindow)
+  }
 }
 
 // ================================ 托盘 =====================================
@@ -896,6 +910,29 @@ function registerIpc() {
 
   // 泡泡图库
   ipcMain.handle('bimg:list', () => storeMod.bubbleImgsPayload())
+  // ---------- v0.4.0 自定义泡泡框 ----------
+  ipcMain.handle('frame:get', () => storeMod.framePayload())
+  ipcMain.handle('frame:set', (e, msg) => {
+    const res = storeMod.setFrame(msg)
+    if (res.ok) broadcast('frame:changed', res)
+    return res
+  })
+  ipcMain.handle('frame:upload', (e, msg) => {
+    const m = msg && typeof msg === 'object' ? msg : {}
+    const res = storeMod.uploadFrame(m.name, m.image)
+    if (res.ok) broadcast('frame:changed', res)
+    return res
+  })
+  ipcMain.handle('frame:delete', (e, msg) => {
+    const res = storeMod.deleteFrame(String((msg && msg.id) || ''))
+    if (res.ok) broadcast('frame:changed', res)
+    return res
+  })
+  ipcMain.handle('frame:read', (e, msg) => {
+    const got = storeMod.loadFrameImage(String((msg && msg.id) || ''))
+    if (!got) return { ok: false, error: 'frame image unavailable' }
+    return { ok: true, mime: got.mime, base64: got.bytes.toString('base64') }
+  })
   ipcMain.handle('bimg:upload', (e, msg) => {
     const m = msg && typeof msg === 'object' ? msg : {}
     return storeMod.uploadBubbleImg(m.name, m.image)
@@ -1110,6 +1147,7 @@ async function runSmoke() {
 
   openMenu()
   await new Promise((r) => setTimeout(r, 700))
+  results.menuCreated = !!(menuWin && !menuWin.isDestroyed())
   await capturer(menuWin, 'smoke-menu.png')
 
   // ④ 设置窗被直接叉掉后：应能按需重建并再次打开，且默认居中（不被大鲸鱼遮挡）

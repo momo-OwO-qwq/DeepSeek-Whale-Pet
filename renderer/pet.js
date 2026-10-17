@@ -66,6 +66,91 @@
   gifEl.onerror = function () { gifFailed = true }
   bubbleBox.appendChild(gifEl)
 
+  // ------------------------------------------------------ 泡泡框（v0.4.0）
+  // 三层：经典 SVG 框（默认）/ 用户图片框 / CSS 内置框。内容统一按「安全区」
+  // 定位 —— 安全区在 lib/frame.js 里算好（含左右镜像），渲染层只负责落地。
+  var frameLayer = document.createElement('div')
+  frameLayer.className = 'wp-frame'
+  var frameImg = document.createElement('img')
+  frameImg.className = 'wp-frame-img'
+  frameImg.alt = ''
+  frameImg.draggable = false
+  var frameCard = document.createElement('div')
+  frameCard.className = 'wp-frame-card'
+  frameLayer.appendChild(frameImg)
+  frameLayer.appendChild(frameCard)
+  bubbleBox.appendChild(frameLayer)
+
+  var FRAME_KINDS = ['classic', 'round', 'note', 'dashed', 'glass', 'image']
+  var frameState = { id: 'classic', kind: 'classic', tail: 'left', mirror: false, safe: { x: 0.155, y: 0.13, w: 0.575, h: 0.5 } }
+
+  function pctOf(n) { return (Math.round(n * 10000) / 100) + '%' }
+
+  // 安全区 → CSS 变量（.wp-text / .wp-mods 按它定位与限宽）
+  function applyFrameSafe(safe) {
+    bubbleBox.style.setProperty('--wp-safe-x', pctOf(safe.x))
+    bubbleBox.style.setProperty('--wp-safe-y', pctOf(safe.y))
+    bubbleBox.style.setProperty('--wp-safe-w', pctOf(safe.w))
+    bubbleBox.style.setProperty('--wp-safe-h', pctOf(safe.h))
+    var modsW = Math.min(0.88, Math.max(0.4, safe.w * 1.25))
+    bubbleBox.style.setProperty('--wp-mods-w', pctOf(modsW))
+  }
+
+  // 内置框的卡片位置：安全区外扩一圈留出边框内边距
+  function positionFrameCard(safe) {
+    var padX = 0.05
+    var padY = 0.045
+    var x = Math.max(0, safe.x - padX)
+    var y = Math.max(0, safe.y - padY)
+    var w = Math.min(1 - x, safe.w + padX * 2)
+    var h = Math.min(1 - y, safe.h + padY * 2)
+    frameCard.style.left = pctOf(x)
+    frameCard.style.top = pctOf(y)
+    frameCard.style.width = pctOf(w)
+    frameCard.style.height = pctOf(h)
+  }
+
+  function applyFrame(data) {
+    var eff = (data && data.effective) ? data.effective : frameState
+    if (!eff || !eff.safe) return
+    frameState = eff
+    var kind = FRAME_KINDS.indexOf(eff.kind) !== -1 ? eff.kind : 'classic'
+    bubbleBox.classList.toggle('wp-frame-on', kind !== 'classic')
+    for (var i = 0; i < FRAME_KINDS.length; i++) {
+      bubbleBox.classList.toggle('wp-frame-' + FRAME_KINDS[i], kind === FRAME_KINDS[i])
+    }
+    bubbleBox.classList.toggle('wp-tail-left', eff.tail === 'left')
+    bubbleBox.classList.toggle('wp-tail-right', eff.tail === 'right')
+    applyFrameSafe(eff.safe)
+    if (kind === 'classic') {
+      frameImg.style.display = 'none'
+      frameCard.style.display = 'none'
+      return
+    }
+    if (kind === 'image') {
+      frameCard.style.display = 'none'
+      frameImg.style.display = 'block'
+      frameImg.classList.toggle('wp-frame-flipped', eff.mirror === true)
+      if (eff.id && api.readFrame) {
+        api.readFrame(eff.id).then(function (res) {
+          if (res && res.ok && frameState.id === eff.id) {
+            frameImg.src = 'data:' + res.mime + ';base64,' + res.base64
+          }
+        }).catch(function () {})
+      }
+      return
+    }
+    frameImg.style.display = 'none'
+    frameCard.style.display = 'block'
+    positionFrameCard(eff.safe)
+  }
+
+  function loadFrameConfig() {
+    if (!api.getFrame) return
+    api.getFrame().then(applyFrame).catch(function () {})
+    if (api.onFrameChanged) api.onFrameChanged(function (data) { applyFrame(data) })
+  }
+
   var textBox = document.createElement('div')
   textBox.className = 'wp-text'
   var labelEl = document.createElement('div')
@@ -653,6 +738,7 @@
 
   // 开新轮：有自定义泡泡配置则走配置序列，否则回落到内置行为
   function startRound() {
+    if (!bubbleOn) return
     // 关键：bubbleShown 必须在渲染自定义泡时一并置真。
     // 旧实现只加了 CSS 类、没置这个标志，于是下一次点击看到 bubbleShown=false，
     // 又当成「全新一轮」重新渲染第 1 项 —— 表现为「点第二下没反应、永远停在第 1 项」。
@@ -936,8 +1022,14 @@
         // 余额下降 = 观测到一次消费：播报表情 + 任务结束音（同一个信号）
         if (consumed && !manual) {
           triggerDropFace()
-          playTaskEndSound()
+          // 消耗通道优先；通道关闭时回退到旧「任务结束音」（行为保持兼容）
+          if (!playChannelSound('cost')) playTaskEndSound()
         }
+        // 低余额：只在「刚进入预警」时响一次，避免每次刷新都响
+        var lowNow = isLowBalance()
+        if (lowNow && !lowAlertOn) playChannelSound('alert')
+        lowAlertOn = lowNow
+        if (manual) playChannelSound('ask')
         if (changed && !currencyChanged) {
           if (!manual) {
             showBubble()
@@ -1408,12 +1500,13 @@
       }
       var pressSrc = pressSound ? resolveImgPath(pressSound) : (audioGroup === 'fx1' ? '../assets/D1.mp3' : '../assets/Ya1.mp3')
       var releaseSrc = releaseSound ? resolveImgPath(releaseSound) : (audioGroup === 'fx1' ? '../assets/D2.mp3' : '../assets/Ya2.mp3')
+      var pv = channelVolume('press')
       pressAudio = new Audio(pressSrc)
       pressAudio.preload = 'auto'
-      pressAudio.volume = soundVol
+      pressAudio.volume = pv
       releaseAudio = new Audio(releaseSrc)
       releaseAudio.preload = 'auto'
-      releaseAudio.volume = soundVol
+      releaseAudio.volume = pv
     } catch (err) {}
   }
 
@@ -1430,19 +1523,20 @@
       // 空串 = 显式静音 → 保持 null；null/未设置 → 回退内置小黄鸭
       var pFrag = g.press === '' ? '' : (g.press || 'ya1')
       var rFrag = g.release === '' ? '' : (g.release || 'ya2')
-      if (pFrag) loadFragmentAudio(pFrag, function (a) { pressAudio = a })
-      if (rFrag) loadFragmentAudio(rFrag, function (a) { releaseAudio = a })
+      var pv = channelVolume('press')
+      if (pFrag) loadFragmentAudio(pFrag, function (a) { a.volume = pv; pressAudio = a }, pv)
+      if (rFrag) loadFragmentAudio(rFrag, function (a) { a.volume = pv; releaseAudio = a }, pv)
     }).catch(function () {})
   }
 
   // 片段 → Audio 元素（data URL；内置片段由主进程按自带 MIME 下发）
-  function loadFragmentAudio(fragId, cb) {
+  function loadFragmentAudio(fragId, cb, vol) {
     api.readAudio(fragId).then(function (res) {
       if (!res || !res.ok) return
       try {
         var a = new Audio('data:' + res.mime + ';base64,' + res.base64)
         a.preload = 'auto'
-        a.volume = soundVol
+        a.volume = typeof vol === 'number' ? vol : soundVol
         cb(a)
       } catch (err) {}
     }).catch(function () {})
@@ -1481,17 +1575,20 @@
     }
   }
 
-  function playFragment(fragId) {
+  function playFragment(fragId, vol) {
     if (!fragId) return
+    var target = typeof vol === 'number' ? vol : soundVol
+    if (target <= 0) return
     var cached = taskEndAudioCache[fragId]
     if (cached) {
-      try { cached.currentTime = 0; cached.volume = soundVol; cached.play() } catch (err) {}
+      try { cached.currentTime = 0; cached.volume = target; cached.play() } catch (err) {}
       return
     }
     loadFragmentAudio(fragId, function (a) {
+      a.volume = target
       taskEndAudioCache[fragId] = a
       try { a.play() } catch (err) {}
-    })
+    }, target)
   }
 
   // 整个音效组当一次「点按」播放：先 press，结束后再 release。
@@ -1517,7 +1614,7 @@
   }
 
   function playPress() {
-    if (!pressAudio || !soundOn) return
+    if (!pressAudio || !soundOn || !audioCh.press.on) return
     try {
       if (releaseTimer) { clearTimeout(releaseTimer); releaseTimer = null }
       if (releaseAudio) {
@@ -1592,6 +1689,8 @@
     peakMode = ['liangwen', 'qiangqiang'].includes(c.peakMode) ? c.peakMode : 'default'
     peakText = c.peakText !== false
     bubbleOn = c.bubbleOn !== false
+    // 关掉气泡开关后，已经展开的泡泡要立即收起，否则「设置里关了也还在」
+    if (!bubbleOn && bubbleShown) hideBubble()
     var bi = (typeof c.bubbleInterval === 'number' && isFinite(c.bubbleInterval)) ? Math.max(0, Math.round(c.bubbleInterval)) : 120
     bi = bi * 1000
     if (bi !== bubbleIntervalMs) {
@@ -1614,6 +1713,7 @@
     if (typeof c.audioGroup === 'string' && c.audioGroup) audioGroup = c.audioGroup
     if (typeof c.roleId === 'string' && c.roleId && c.roleId !== roleId) { roleId = c.roleId; loadRoleImage() }
     applyTaskEnd(c.taskEnd)
+    applyAudioChannels(c.audioChannels)
     if (typeof c.bubbleTapAdvance === 'boolean' && customBubble) customBubble.tapAdvance = c.bubbleTapAdvance
     if (typeof c.alertImgPath === 'string' && c.alertImgPath.trim()) alertImgPath = c.alertImgPath.trim()
     if (typeof c.mainImgPath === 'string' && c.mainImgPath.trim()) mainImgPath = c.mainImgPath.trim()
@@ -1640,6 +1740,58 @@
       await setScale(c.scale)
     }
     updateHeroImage()
+  }
+
+  // -------------------------------------------------- 音效四通道（v0.4.0）
+  // press 按压 / cost 消耗 / ask 手动刷新 / alert 低余额：各自开关 + 音量，
+  // 与全局音量相乘。默认只有 press 开（装完不乱响）。
+  // 说明：上游的「提问 / 授权」在桌宠没有对应事件，按同构事件映射为「手动刷新 /
+  // 低余额提醒」，渲染层不依赖 DSH 的事件流。
+  var audioCh = {
+    press: { on: true, vol: 1, frag: '' },
+    cost: { on: false, vol: 0.8, frag: 'frag:exp_orb' },
+    ask: { on: false, vol: 0.8, frag: 'frag:d1' },
+    alert: { on: false, vol: 1, frag: 'frag:end_a' }
+  }
+  var lowAlertOn = false
+
+  function applyAudioChannels(raw) {
+    if (!raw || typeof raw !== 'object') return
+    var names = ['press', 'cost', 'ask', 'alert']
+    for (var i = 0; i < names.length; i++) {
+      var n = names[i]
+      var c = raw[n]
+      if (!c || typeof c !== 'object') continue
+      audioCh[n] = {
+        on: c.on === true,
+        vol: Math.max(0, Math.min(1, typeof c.vol === 'number' ? c.vol : audioCh[n].vol)),
+        frag: typeof c.frag === 'string' ? c.frag : audioCh[n].frag
+      }
+    }
+    // 只更新现有音源音量，不重建 Audio（重建会打断正在播放的按压音）
+    var pv = channelVolume('press')
+    try {
+      if (pressAudio) pressAudio.volume = pv
+      if (releaseAudio) releaseAudio.volume = pv
+    } catch (err) {}
+  }
+
+  // 通道音量：通道关闭 / 全局静音时返回 0
+  function channelVolume(name) {
+    var ch = audioCh[name]
+    if (!ch || !ch.on || !soundOn) return 0
+    return Math.max(0, Math.min(1, soundVol * ch.vol))
+  }
+
+  // 播放通道选中的片段。返回 true 表示「这个通道接管了本次事件」。
+  function playChannelSound(name) {
+    var ch = audioCh[name]
+    if (!ch || !ch.on || !soundOn) return false
+    if (typeof ch.frag !== 'string' || ch.frag.indexOf('frag:') !== 0) return false
+    var fragId = ch.frag.slice(5)
+    if (!fragId) return false
+    playFragment(fragId, channelVolume(name))
+    return true
   }
 
   // ------------------------------------------------------------- 外部事件
@@ -1749,6 +1901,7 @@
     reportShape() // 按鲸鱼位置裁剪窗口 → 透明区域点击穿透
     api.getCustom().then(applyCustom).catch(function () {})
     if (api.getBubble) api.getBubble().then(applyBubbleConfig).catch(function () {})
+    loadFrameConfig()
     loadRoleImage()
     refresh(false)
     refreshTimer = setInterval(function () { refresh(false) }, refreshIntervalMs)

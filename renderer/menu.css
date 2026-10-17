@@ -959,3 +959,158 @@ input, textarea, select,
 }
 .wm-mod-ctl > .wm-mod-text { flex: 1 1 100px; }
 .wm-mod-ctl > select { flex: 0 1 auto; min-width: 0; max-width: 120px; }
+
+/* ===========================================================================
+ * v0.4.0 新增：泡泡框库 / 音效通道 / 分组折叠
+ * 全部复用第 1 节的设计令牌，不引入新的颜色字面量，保证深浅色一致。
+ * ========================================================================== */
+
+/* ---- 分组折叠（只对 data-collapsible 的分组生效，默认展开） ---- */
+.wm-group-toggle {
+  cursor: pointer;
+  user-select: none;
+  display: flex;
+  align-items: center;
+  gap: var(--wm-sp-2);
+}
+.wm-group-toggle::after {
+  content: '';
+  width: 7px;
+  height: 7px;
+  margin-left: auto;
+  border-right: 2px solid var(--wm-fg-subtle);
+  border-bottom: 2px solid var(--wm-fg-subtle);
+  transform: rotate(45deg) translateY(-2px);
+  transition: transform .16s ease;
+}
+.wm-group-toggle:hover { color: var(--wm-accent); }
+.wm-group-toggle:focus-visible { outline: 2px solid var(--wm-ring); outline-offset: 2px; border-radius: var(--wm-r-xs); }
+.wm-group-collapsed .wm-group-toggle::after { transform: rotate(-45deg) translateY(-2px); }
+.wm-group-collapsed > *:not(.wm-group-title) { display: none; }
+
+/* ---- 泡泡框库 ---- */
+.wm-frame-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+  gap: var(--wm-sp-2);
+  margin: var(--wm-sp-2) 0;
+}
+.wm-frame-item {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--wm-sp-1);
+  padding: var(--wm-sp-1);
+  border: 1px solid var(--wm-border);
+  border-radius: var(--wm-r-md);
+  background: var(--wm-surface);
+  color: var(--wm-fg);
+  font-family: inherit;
+  cursor: pointer;
+  text-align: center;
+  transition: border-color .14s ease, box-shadow .14s ease;
+}
+.wm-frame-item:hover { border-color: var(--wm-border-hover); }
+.wm-frame-item:focus-visible { outline: 2px solid var(--wm-ring); outline-offset: 1px; }
+.wm-frame-item-on {
+  border-color: var(--wm-accent);
+  box-shadow: 0 0 0 2px var(--wm-accent-soft);
+}
+.wm-frame-name {
+  font-size: 11.5px;
+  color: var(--wm-fg-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.wm-frame-item-on .wm-frame-name { color: var(--wm-accent); font-weight: 600; }
+
+.wm-frame-thumb {
+  position: relative;
+  aspect-ratio: 1026 / 700;
+  border-radius: var(--wm-r-sm);
+  background: var(--wm-surface-2);
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.wm-frame-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+}
+/* 内置框缩略图：用 CSS 画出同类边框，保证一眼能区分 */
+.wm-thumb-card {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 66%;
+  height: 58%;
+  margin-bottom: 8%;
+  border: 2px solid var(--wm-fg);
+  border-radius: 10px;
+  background: var(--wm-surface);
+  color: var(--wm-fg-subtle);
+  font-size: 10px;
+  line-height: 1;
+}
+.wm-thumb-classic .wm-thumb-card { border-radius: 46% / 40%; }
+.wm-thumb-note .wm-thumb-card {
+  border: 1px solid var(--wm-border);
+  border-radius: 3px;
+  background: #fffbe8;
+  color: #8a6d1b;
+}
+.wm-thumb-dashed .wm-thumb-card { border-style: dashed; border-radius: 8px; }
+.wm-thumb-glass .wm-thumb-card {
+  border-color: var(--wm-border-ctl);
+  background: rgba(120, 150, 200, .16);
+  backdrop-filter: blur(2px);
+}
+.wm-thumb-round .wm-thumb-card { border-radius: 12px; }
+
+/* ---- 音效通道 ---- */
+.wm-ch-list { display: flex; flex-direction: column; gap: var(--wm-sp-2); margin-top: var(--wm-sp-2); }
+.wm-ch-row {
+  padding: var(--wm-sp-2);
+  border: 1px solid var(--wm-border);
+  border-radius: var(--wm-r-md);
+  background: var(--wm-surface);
+}
+.wm-ch-head {
+  display: flex;
+  align-items: center;
+  gap: var(--wm-sp-2);
+  flex-wrap: wrap;
+}
+.wm-ch-head > .wm-check { flex: 1 1 120px; }
+.wm-ch-vol { display: flex; align-items: center; gap: var(--wm-sp-1); flex: 1 1 150px; min-width: 120px; }
+.wm-ch-vol .wm-range { flex: 1 1 auto; min-width: 60px; }
+.wm-ch-frag {
+  width: 100%;
+  margin-top: var(--wm-sp-1);
+  box-sizing: border-box;
+  /* 与 .wm-field select 同款：原生 select 在深色主题下必须显式上色，
+     否则会显示成系统默认的浅米色（详见 v0.3.5 的深色适配） */
+  appearance: none;
+  -webkit-appearance: none;
+  padding: 6px 28px 6px 8px;
+  border: 1px solid var(--wm-border-ctl);
+  border-radius: var(--wm-r-sm);
+  background-color: var(--wm-surface-2);
+  color: var(--wm-fg);
+  font-family: inherit;
+  font-size: var(--wm-fs-label);
+  background-image: linear-gradient(45deg, transparent 50%, var(--wm-fg-subtle) 50%),
+                    linear-gradient(135deg, var(--wm-fg-subtle) 50%, transparent 50%);
+  background-position: calc(100% - 14px) 50%, calc(100% - 9px) 50%;
+  background-size: 5px 5px, 5px 5px;
+  background-repeat: no-repeat;
+}
+.wm-ch-frag:focus-visible {
+  outline: 2px solid var(--wm-ring);
+  outline-offset: 1px;
+}
+

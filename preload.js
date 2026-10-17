@@ -56,15 +56,21 @@ contextBridge.exposeInMainWorld('whaleAPI', {
   pinRole: (id, pinned) => ipcRenderer.invoke('role:pin', { id, pinned }),
   deleteRole: (id) => ipcRenderer.invoke('role:delete', { id }),
   readRole: (id) => ipcRenderer.invoke('role:read', { id }),
-  listBubbleImgs: () => ipcRenderer.invoke('bimg:list'),
-  uploadBubbleImg: (name, image) => ipcRenderer.invoke('bimg:upload', { name, image }),
+  listBubbleImgs: () => ipcRenderer.invoke('bimg:list'),  uploadBubbleImg: (name, image) => ipcRenderer.invoke('bimg:upload', { name, image }),
   deleteBubbleImg: (id) => ipcRenderer.invoke('bimg:delete', { id }),
   readBubbleImg: (id) => ipcRenderer.invoke('bimg:read', { id }),
+  // ---- v0.4.0 自定义泡泡框（框库 / 预览 / 安全区 / 左右版）----
+  getFrame: () => ipcRenderer.invoke('frame:get'),
+  setFrame: (patch) => ipcRenderer.invoke('frame:set', patch),
+  uploadFrame: (name, image) => ipcRenderer.invoke('frame:upload', { name, image }),
+  deleteFrame: (id) => ipcRenderer.invoke('frame:delete', { id }),
+  readFrame: (id) => ipcRenderer.invoke('frame:read', { id }),
   // 用系统默认程序打开文件/目录/URL
   openPath: (path) => ipcRenderer.invoke('shell:open-path', { path }),
   // 事件
   onConfigChanged: (cb) => ipcRenderer.on('config:changed', (_e, cfg) => cb(cfg)),
   onCustomChanged: (cb) => ipcRenderer.on('custom:changed', (_e, data) => cb(data)),
   onBubbleChanged: (cb) => ipcRenderer.on('bubble:changed', (_e, data) => cb(data)),
+  onFrameChanged: (cb) => ipcRenderer.on('frame:changed', (_e, data) => cb(data)),
   onRefresh: (cb) => ipcRenderer.on('whale:refresh', () => cb()),
 })
