@@ -296,6 +296,34 @@
     })
   }
 
+  // 试听：读片段字节 → 在菜单窗口播放，音量 = 总音量 × 通道音量
+  var previewAudio = null
+  function previewFragment(frag, vol) {
+    var status = $('wm-ch-status')
+    if (!frag || frag.indexOf('frag:') !== 0) {
+      setNote(status, '这个通道当前没有选中片段，先在上面选一个', 'warn')
+      return
+    }
+    var id = frag.slice(5)
+    api.readAudio(id).then(function (res) {
+      if (!res || !res.ok) {
+        setNote(status, '试听失败：读不到音频文件', 'warn')
+        return
+      }
+      try {
+        if (previewAudio) { previewAudio.pause(); previewAudio = null }
+        previewAudio = new Audio('data:' + res.mime + ';base64,' + res.base64)
+        previewAudio.volume = Math.max(0, Math.min(1, (chState.masterVol || 1) * (vol || 1)))
+        previewAudio.play()
+        setNote(status, '正在试听', 'ok')
+      } catch (err) {
+        setNote(status, '试听失败：' + String((err && err.message) || err), 'warn')
+      }
+    }).catch(function (err) {
+      setNote(status, '试听失败：' + String((err && err.message) || err), 'warn')
+    })
+  }
+
   function renderChannels() {
     var host = $('wm-ch-list')
     if (!host) return
@@ -360,6 +388,13 @@
           sel.value = ch.frag || ''
           sel.addEventListener('change', function () { writeChannel(def.key, { frag: sel.value }) })
           row.appendChild(sel)
+
+          var tryBtn = document.createElement('button')
+          tryBtn.type = 'button'
+          tryBtn.className = 'wm-btn wm-btn-ghost wm-ch-try'
+          tryBtn.textContent = '试听'
+          tryBtn.addEventListener('click', function () { previewFragment(sel.value, ch.vol) })
+          row.appendChild(tryBtn)
         }
 
         var hint = document.createElement('div')
@@ -387,6 +422,7 @@
       var cfg = res[0] || {}
       var audio = res[1] || {}
       chState.channels = cfg.audioChannels || null
+      chState.masterVol = typeof cfg.volume === 'number' ? cfg.volume : 1
       chState.fragments = Array.isArray(audio.fragments) ? audio.fragments : []
       renderChannels()
     }).catch(function () {})

@@ -1118,3 +1118,11 @@ input, textarea, select,
   outline-offset: 1px;
 }
 
+
+/* 通道「试听」按钮：贴着片段下拉，右对齐小按钮 */
+.wm-ch-try {
+  margin-top: var(--wm-sp-1);
+  align-self: flex-end;
+  padding: 4px 12px;
+  font-size: var(--wm-fs-label);
+}
