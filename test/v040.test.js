@@ -196,4 +196,16 @@ test('config: 缺字段的旧配置会被补上 audioChannels 默认值', () => 
   assert.strictEqual(c.apiKey, 'sk-test')
 })
 
+// ============================ 点击轮换行为 ============================
+test('pet.js: 鲸鱼点击在无自定义序列时轮换「余额 → 随机台词 → 收起」', () => {
+  const fs2 = require('fs')
+  const src = fs2.readFileSync(require('path').join(__dirname, '..', 'renderer', 'pet.js'), 'utf8')
+  const i = src.indexOf('function bubbleNext()')
+  assert.ok(i !== -1, '应有 bubbleNext')
+  const body = src.slice(i, i + 900)
+  assert.ok(/pickRandomLines\(\)/.test(body), '第二次点击应切到随机台词')
+  assert.ok(/hideBubble\(\)/.test(body), '再点一次应收起')
+  assert.ok(/bubbleRandomActive/.test(body), '应复用 bubbleRandomActive 状态')
+})
+
 console.log('\n' + passed + ' v0.4.0 tests passed' + (failed ? '，' + failed + ' failed' : ''))

@@ -768,7 +768,16 @@
       hideBubble()
       return
     }
-    // 无自定义配置：沿用内置「点一下切台词 / 再点收起」的既有行为
+    // 无自定义配置：点击轮换「余额 → 随机台词 → 收起」。
+    // 旧实现直接 hideBubble()，导致第二次点击看到的是「泡泡消失」而不是台词——
+    // 而点气泡本身走的是「切台词再收起」，两条路径行为不一致（用户实测反馈）。
+    if (!bubbleRandomActive) {
+      bubbleRandomActive = true
+      bubbleRandomLines = pickRandomLines()
+      swapBubbleContent(function () { applyBubbleLines(bubbleRandomLines) })
+      resetBubbleTtl()
+      return
+    }
     hideBubble()
   }
 
