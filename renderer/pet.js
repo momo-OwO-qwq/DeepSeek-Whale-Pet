@@ -92,14 +92,17 @@
     bubbleBox.style.setProperty('--wp-safe-y', pctOf(safe.y))
     bubbleBox.style.setProperty('--wp-safe-w', pctOf(safe.w))
     bubbleBox.style.setProperty('--wp-safe-h', pctOf(safe.h))
-    var modsW = Math.min(0.88, Math.max(0.4, safe.w * 1.25))
+    // 模块泡允许比安全区略宽一点（模块有自带内边距），但不超过画布 88%
+    var modsW = Math.min(0.88, Math.max(0.4, safe.w * 1.12))
     bubbleBox.style.setProperty('--wp-mods-w', pctOf(modsW))
   }
 
   // 内置框的卡片位置：安全区外扩一圈留出边框内边距
   function positionFrameCard(safe) {
-    var padX = 0.05
-    var padY = 0.045
+    // 均匀内边距：左右 4.5%、上下 5% 画布 —— 卡片与安全区同心，
+    // 四边框距一致，文字看起来「贴合」而不是被挤在一边。
+    var padX = 0.045
+    var padY = 0.05
     var x = Math.max(0, safe.x - padX)
     var y = Math.max(0, safe.y - padY)
     var w = Math.min(1 - x, safe.w + padX * 2)

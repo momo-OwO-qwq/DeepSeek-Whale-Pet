@@ -169,6 +169,10 @@ function createPetWindow() {
   // 表现为「鲸鱼消失，再点一次才恢复」。失焦时用 showInactive 重新强制显示
   // （不抢焦点），保持鲸鱼始终可见。
   petWin.on('blur', () => {
+    // Linux/XWayland 下 showInactive() 会让部分 WM 重新摆位甚至按 size hints
+    // 复算尺寸 —— 表现为「点设置后鲸鱼上飘、内容变小」。该 workaround 只针对
+    // Windows DWM，其他平台直接跳过。
+    if (process.platform !== 'win32') return
     // Muzyu备注，修复新增bug：拖拽时组件抖动
     // 拖拽中不重演窗口：Windows 下对正在拖拽的窗口 ShowWindow 会打断鼠标捕获/
     // 触发重新合成（表现为拖拽抖动）。但不能直接丢弃这次失焦 —— 否则可能重新
@@ -197,6 +201,10 @@ function createMenuWindow(initX, initY) {
   menuWin = new BrowserWindow({
     width: MENU_W,
     height: MENU_H,
+    // 关键：width/height 默认含系统标题栏（Linux 约 37px），导致内容区比设计稿
+    // 矮一截（表现为「打开设置后可见内容变小」）。useContentSize 让 600×720
+    // 就是内容区尺寸，窗口总高自动加上标题栏。
+    useContentSize: true,
     x: typeof initX === 'number' ? Math.round(initX) : undefined,
     y: typeof initY === 'number' ? Math.round(initY) : undefined,
     frame: true,
