@@ -54,11 +54,18 @@ test('frame: 内置框共 5 个，id 稳定', () => {
   assert.deepStrictEqual(ids, ['classic', 'round', 'note', 'dashed', 'glass'])
 })
 
-test('frame: 经典框安全区中心仍是 44.25% / 38%（老用户视觉零变化）', () => {
+test('frame: 经典框文字中心 43.4% / 35.5%（向左上平移，对齐椭圆圆心）', () => {
   const eff = frame.effective({})
   assert.strictEqual(eff.kind, 'classic')
-  assert.strictEqual(Math.round((eff.safe.x + eff.safe.w / 2) * 10000) / 100, 44.25)
-  assert.strictEqual(Math.round((eff.safe.y + eff.safe.h / 2) * 10000) / 100, 38)
+  assert.strictEqual(Math.round((eff.safe.x + eff.safe.w / 2) * 10000) / 100, 43.4)
+  assert.strictEqual(Math.round((eff.safe.y + eff.safe.h / 2) * 10000) / 100, 35.5)
+})
+
+test('frame: 所有内置框共用同一个框盒（换框不换位置）', () => {
+  const boxes = ['classic', 'round', 'note', 'dashed', 'glass'].map(function (id) {
+    return JSON.stringify(frame.effective({ sel: id }).box)
+  })
+  assert.strictEqual(new Set(boxes).size, 1, '内置框框盒应完全一致')
 })
 
 test('frame: 安全区越界被夹回画布内（x+w ≤ 1、y+h ≤ 1）', () => {

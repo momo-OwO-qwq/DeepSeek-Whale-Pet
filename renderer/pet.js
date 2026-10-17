@@ -98,20 +98,13 @@
     bubbleBox.style.setProperty('--wp-mods-w', pctOf(modsW))
   }
 
-  // 内置框的卡片位置：安全区外扩一圈留出边框内边距
-  function positionFrameCard(safe) {
-    // 均匀内边距：左右 4.5%、上下 5% 画布 —— 卡片与安全区同心，
-    // 四边框距一致，文字看起来「贴合」而不是被挤在一边。
-    var padX = 0.045
-    var padY = 0.05
-    var x = Math.max(0, safe.x - padX)
-    var y = Math.max(0, safe.y - padY)
-    var w = Math.min(1 - x, safe.w + padX * 2)
-    var h = Math.min(1 - y, safe.h + padY * 2)
-    frameCard.style.left = pctOf(x)
-    frameCard.style.top = pctOf(y)
-    frameCard.style.width = pctOf(w)
-    frameCard.style.height = pctOf(h)
+  // 内置框的卡片位置：直接用框盒（lib/frame.js 的 FRAME_BOX，等于经典 SVG
+  // 椭圆的包围盒），这样换框时卡片和经典泡泡完全重合，不会「经典框位置不同」。
+  function positionFrameCard(box) {
+    frameCard.style.left = pctOf(box.x)
+    frameCard.style.top = pctOf(box.y)
+    frameCard.style.width = pctOf(box.w)
+    frameCard.style.height = pctOf(box.h)
   }
 
   function applyFrame(data) {
@@ -146,7 +139,7 @@
     }
     frameImg.style.display = 'none'
     frameCard.style.display = 'block'
-    positionFrameCard(eff.safe)
+    positionFrameCard(eff.box || { x: eff.safe.x - 0.045, y: eff.safe.y - 0.05, w: eff.safe.w + 0.09, h: eff.safe.h + 0.1 })
   }
 
   function loadFrameConfig() {
