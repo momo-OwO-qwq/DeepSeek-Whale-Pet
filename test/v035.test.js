@@ -605,11 +605,13 @@ test('一致性：渲染层优先级为 预警 > 播报 > 角色 > 主图', () =
 
 test('一致性：余额下降同时触发播报表情与任务结束音', () => {
   const src = fs.readFileSync(path.join(__dirname, '..', 'renderer', 'pet.js'), 'utf8')
-  const i = src.indexOf('consumed && !manual')
+  const i = src.indexOf('if (consumed)')
   assert.ok(i !== -1, '应有余额下降判定')
-  const body = src.slice(i, i + 260)
+  const body = src.slice(i, i + 420)
   assert.ok(/triggerDropFace\(\)/.test(body), '应触发播报表情')
-  assert.ok(/playTaskEndSound\(\)/.test(body), '应播放任务结束音（同一信号）')
+  // v0.4.0：优先走「消耗」音效通道，通道关闭时回退旧的 taskEnd 音（同一信号）
+  assert.ok(/playChannelSound\('cost'\)/.test(body), '应优先播放消耗通道')
+  assert.ok(/playTaskEndSound\(\)/.test(body), '应回退任务结束音（同一信号）')
 })
 
 test('一致性：设置界面提供播报表情的开关 / 选图 / 时长', () => {

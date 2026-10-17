@@ -87,13 +87,14 @@
   function pctOf(n) { return (Math.round(n * 10000) / 100) + '%' }
 
   // 安全区 → CSS 变量（.wp-text / .wp-mods 按它定位与限宽）
-  function applyFrameSafe(safe) {
+  function applyFrameSafe(safe, kind) {
     bubbleBox.style.setProperty('--wp-safe-x', pctOf(safe.x))
     bubbleBox.style.setProperty('--wp-safe-y', pctOf(safe.y))
     bubbleBox.style.setProperty('--wp-safe-w', pctOf(safe.w))
     bubbleBox.style.setProperty('--wp-safe-h', pctOf(safe.h))
-    // 模块泡允许比安全区略宽一点（模块有自带内边距），但不超过画布 88%
-    var modsW = Math.min(0.88, Math.max(0.4, safe.w * 1.12))
+    // 模块泡宽度：经典框沿用原来的 72%（v1.5.5 的视觉基准，改窄会导致
+    // 模块换行/错位，也就是「经典框对不齐」）；其他框按安全区 1.12 倍。
+    var modsW = kind === 'classic' ? 0.72 : Math.min(0.88, Math.max(0.4, safe.w * 1.12))
     bubbleBox.style.setProperty('--wp-mods-w', pctOf(modsW))
   }
 
@@ -124,7 +125,7 @@
     }
     bubbleBox.classList.toggle('wp-tail-left', eff.tail === 'left')
     bubbleBox.classList.toggle('wp-tail-right', eff.tail === 'right')
-    applyFrameSafe(eff.safe)
+    applyFrameSafe(eff.safe, kind)
     if (kind === 'classic') {
       frameImg.style.display = 'none'
       frameCard.style.display = 'none'
@@ -1023,10 +1024,12 @@
         state.todayUsage = data.todayUsage !== undefined ? data.todayUsage : null
         state.isPeak = !!data.isPeak
         // 余额下降 = 观测到一次消费：播报表情 + 任务结束音（同一个信号）
-        if (consumed && !manual) {
-          triggerDropFace()
-          // 消耗通道优先；通道关闭时回退到旧「任务结束音」（行为保持兼容）
-          if (!playChannelSound('cost')) playTaskEndSound()
+        if (consumed) {
+          // 播报表情只给自动轮询（手动刷新时用户正盯着看，不需要再闪一次）
+          if (!manual) triggerDropFace()
+          // 消耗通道优先；通道关闭时回退到旧「任务结束音」（行为保持兼容）。
+          // 手动刷新同样算「观测到消费」，否则开了消耗通道也听不到声音（bug）。
+          if (!playChannelSound('cost') && !manual) playTaskEndSound()
         }
         // 低余额：只在「刚进入预警」时响一次，避免每次刷新都响
         var lowNow = isLowBalance()

@@ -155,7 +155,9 @@ html, body {
      默认值与经典框一致（44.25% / 38%），换框后自动内缩，不压边框和尾巴。 */
   left: calc(var(--wp-safe-x, 15.5%) + var(--wp-safe-w, 57.5%) / 2);
   top: calc(var(--wp-safe-y, 13%) + var(--wp-safe-h, 50%) / 2);
-  max-width: var(--wp-safe-w, 57.5%);
+  /* 文字必须在框层之上：毛玻璃框的 backdrop-filter 会建立合成层，
+     不加 z-index 时在部分合成路径下会盖住文字（表现为「台词没出现」）。 */
+  z-index: 1;
   transform: translate(-50%, -50%);
   text-align: center;
   color: #536ba9;
@@ -220,8 +222,7 @@ html, body {
   position: absolute;
   left: calc(var(--wp-safe-x, 15.5%) + var(--wp-safe-w, 57.5%) / 2);
   top: calc(var(--wp-safe-y, 13%) + var(--wp-safe-h, 50%) / 2);
-  width: var(--wp-mods-w, 72%);
-  max-width: var(--wp-safe-w, 57.5%);
+  width: 72%;
   transform: translate(-50%, -50%);
   display: none;
   flex-direction: column;
